@@ -3,8 +3,12 @@
 Generate production-ready MCP (Model Context Protocol) servers from natural language descriptions, OpenAPI specs, or database schemas.
 
 [![npm version](https://img.shields.io/npm/v/@heshamfsalama/mcp-tool-factory.svg)](https://www.npmjs.com/package/@heshamfsalama/mcp-tool-factory)
+[![npm downloads](https://img.shields.io/npm/dm/@heshamfsalama/mcp-tool-factory.svg)](https://www.npmjs.com/package/@heshamfsalama/mcp-tool-factory)
+[![CI](https://github.com/HeshamFS/mcp-tool-factory-ts/actions/workflows/ci.yml/badge.svg)](https://github.com/HeshamFS/mcp-tool-factory-ts/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
+[![MCP](https://img.shields.io/badge/MCP-Registry-purple.svg)](https://registry.modelcontextprotocol.io)
 
 ## Why MCP?
 
