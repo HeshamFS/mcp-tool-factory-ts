@@ -1,0 +1,76 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.HeshamFS/mcp-tool-factory",
+  "description": "Generate MCP servers from natural language, OpenAPI specs, or database schemas. The factory that builds factories. Requires at least one LLM provider API key.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/HeshamFS/mcp-tool-factory-ts",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@heshamfsalama/mcp-tool-factory",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "description": "Anthropic Claude API key (one of the 4 provider keys is required)",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "CLAUDE_CODE_OAUTH_TOKEN",
+          "description": "Claude Code OAuth token (one of the 4 provider keys is required)",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "OPENAI_API_KEY",
+          "description": "OpenAI GPT API key (one of the 4 provider keys is required)",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "GOOGLE_API_KEY",
+          "description": "Google Gemini API key (one of the 4 provider keys is required)",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "generate_mcp_server",
+      "description": "Generate a complete MCP server from a natural language description"
+    },
+    {
+      "name": "generate_from_openapi",
+      "description": "Generate an MCP server from an OpenAPI specification"
+    },
+    {
+      "name": "generate_from_database",
+      "description": "Generate an MCP server with CRUD tools from a database schema"
+    },
+    {
+      "name": "validate_typescript",
+      "description": "Validate TypeScript code for syntax errors"
+    },
+    {
+      "name": "list_providers",
+      "description": "List available LLM providers and their configuration"
+    },
+    {
+      "name": "get_factory_info",
+      "description": "Get information about MCP Tool Factory capabilities"
+    }
+  ]
+}

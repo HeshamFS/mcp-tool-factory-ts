@@ -1,0 +1,73 @@
+/**
+ * Auto-generated tests for MCP server: {{serverName}}
+ */
+
+import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { spawn, ChildProcess } from 'child_process';
+
+describe('{{serverName}} MCP Server', () => {
+  let client: Client;
+  let serverProcess: ChildProcess;
+  let transport: StdioClientTransport;
+
+  beforeAll(async () => {
+    // Start the server process
+    serverProcess = spawn('npx', ['tsx', 'src/index.ts'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    transport = new StdioClientTransport({
+      command: 'npx',
+      args: ['tsx', 'src/index.ts'],
+    });
+
+    client = new Client({
+      name: 'test-client',
+      version: '1.0.0',
+    });
+
+    await client.connect(transport);
+  });
+
+  afterAll(async () => {
+    await client.close();
+    serverProcess?.kill();
+  });
+
+  it('should list all tools', async () => {
+    const result = await client.listTools();
+    const toolNames = result.tools.map(t => t.name);
+
+{{#each toolSpecs}}
+    expect(toolNames).toContain('{{this.name}}');
+{{/each}}
+  });
+
+{{#each toolSpecs}}
+  describe('{{this.name}}', () => {
+    it('should exist and have correct description', async () => {
+      const result = await client.listTools();
+      const tool = result.tools.find(t => t.name === '{{this.name}}');
+
+      expect(tool).toBeDefined();
+      expect(tool?.description).toBe('{{this.description}}');
+    });
+
+    it('should handle valid input', async () => {
+      const result = await client.callTool('{{this.name}}', {
+{{#each this.inputSchema.properties}}
+{{#if (isRequired @key ../this.inputSchema.required)}}
+        {{@key}}: {{exampleValue this.type}},
+{{/if}}
+{{/each}}
+      });
+
+      expect(result).toBeDefined();
+      expect(result.content).toBeDefined();
+    });
+  });
+
+{{/each}}
+});

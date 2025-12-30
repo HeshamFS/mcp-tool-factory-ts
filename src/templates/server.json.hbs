@@ -1,0 +1,37 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "{{mcpName}}",
+  "description": "{{description}}",
+  "version": "{{version}}",
+  "repository": {
+    "url": "{{repositoryUrl}}",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "{{npmPackageName}}",
+      "version": "{{version}}",
+      "transport": {
+        "type": "stdio"
+      }{{#if authEnvVars.length}},
+      "environmentVariables": [
+{{#each authEnvVars}}
+        {
+          "name": "{{this}}",
+          "description": "Required for API access",
+          "required": true
+        }{{#unless @last}},{{/unless}}
+{{/each}}
+      ]{{/if}}
+    }
+  ],
+  "tools": [
+{{#each toolSpecs}}
+    {
+      "name": "{{this.name}}",
+      "description": "{{this.description}}"
+    }{{#unless @last}},{{/unless}}
+{{/each}}
+  ]
+}

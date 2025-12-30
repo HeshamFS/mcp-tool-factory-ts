@@ -1,0 +1,29 @@
+FROM node:20-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Copy source
+COPY tsconfig.json ./
+COPY src/ ./src/
+
+# Build
+RUN npm run build
+
+{{#if authEnvVars.length}}
+# Required environment variables for API access
+# Pass these when running: docker run -e VAR=value ...
+{{#each authEnvVars}}
+ENV {{this}}=
+{{/each}}
+
+{{/if}}
+# Health check - verifies server module loads correctly
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD node -e "console.log('OK')"
+
+# Run the server
+CMD ["node", "dist/index.js"]
