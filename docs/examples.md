@@ -7,9 +7,12 @@ Real-world examples of using MCP Tool Factory.
 | Example | Complexity | Input Type | Features |
 |---------|------------|------------|----------|
 | [Weather API](#weather-api) | Beginner | Natural Language | Basic generation |
+| [Budget-Controlled Generation](#budget-controlled-generation) | Beginner | Natural Language | Cost tracking, budget limits |
 | [GitHub Tools](#github-tools) | Intermediate | Natural Language | Auth, web search |
 | [E-commerce CRUD](#e-commerce-crud) | Intermediate | Database | SQLite, CRUD |
 | [Stripe Payments](#stripe-payments) | Intermediate | OpenAPI | API spec import |
+| [Blog GraphQL API](#blog-graphql-api) | Intermediate | GraphQL | SDL schema, queries/mutations |
+| [University Ontology](#university-ontology) | Intermediate | Ontology | RDF/OWL, resources, relationships |
 | [Multi-Service](#multi-service-aggregator) | Advanced | Natural Language | Multiple APIs |
 | [Production Server](#production-server) | Advanced | Natural Language | Full production |
 
@@ -68,6 +71,89 @@ cd ./servers/weather
 npm install
 export OPENWEATHER_API_KEY=your-key
 npx tsx src/index.ts
+```
+
+---
+
+## Budget-Controlled Generation
+
+Generate with cost awareness — compare providers, set limits, and see what you spent.
+
+### Compare Costs First
+
+```bash
+mcp-factory generate "Create tools for managing a todo list" \
+  --compare-costs
+```
+
+Output:
+```
+Provider Cost Comparison (estimated for ~15,000 input + ~10,000 output tokens):
+  groq/llama-3.3-70b-versatile      $0.0168
+  deepseek/deepseek-chat             $0.0151
+  google/gemini-2.5-flash            $0.0083
+  openai/gpt-5.2                     $0.1100
+  anthropic/claude-sonnet-4-5        $0.1950   ★ selected
+```
+
+### Generate with Budget Limit
+
+```bash
+mcp-factory generate "Create tools for managing a todo list" \
+  --name todo-server \
+  --budget 0.50 \
+  --provider deepseek
+```
+
+### Programmatic Cost Tracking
+
+```typescript
+import {
+  ToolFactoryAgent,
+  writeServerToDirectory,
+  formatCost,
+  BudgetExceededError,
+} from '@heshamfsalama/mcp-tool-factory';
+
+const agent = new ToolFactoryAgent();
+
+try {
+  const server = await agent.generateFromDescription(
+    'Create tools for managing a todo list',
+    { serverName: 'todo-server', budget: 1.00 }
+  );
+
+  // Access cost information
+  if (server.executionLog) {
+    console.log(`Total cost: ${formatCost(server.executionLog.totalCost)}`);
+    console.log(`LLM calls: ${server.executionLog.llmCallCount}`);
+    console.log(`Tokens: ${server.executionLog.totalTokensIn} in / ${server.executionLog.totalTokensOut} out`);
+  }
+
+  await writeServerToDirectory(server, './servers/todo');
+} catch (error) {
+  if (error instanceof BudgetExceededError) {
+    console.error(`Budget exceeded: ${error.message}`);
+  }
+}
+```
+
+### Output
+
+The CLI shows a cost summary after generation:
+
+```
+Usage:
+  Provider: anthropic (claude-sonnet-4-5-20250929)
+  Tokens: 12,450 in / 8,320 out
+  LLM Calls: 6
+  Estimated Cost: $0.1612
+
+  Cost Breakdown:
+    tool_extraction:     $0.0089  (1 call)
+    implementation:      $0.0799  (3 calls)
+    resource_extraction: $0.0126  (1 call)
+    docs_generation:     $0.0598  (1 call)
 ```
 
 ---
@@ -251,6 +337,152 @@ The Stripe spec generates many tools. Key ones include:
 cd ./servers/stripe-server
 npm install
 export STRIPE_API_KEY=sk_test_...
+npx tsx src/index.ts
+```
+
+---
+
+## Blog GraphQL API
+
+Generate tools from a GraphQL schema. Queries become read tools, mutations become write tools.
+
+### Schema
+
+```graphql
+# blog-schema.graphql
+type Query {
+  "Get a post by ID"
+  post(id: ID!): Post
+  "List all posts with optional pagination"
+  posts(limit: Int, offset: Int): [Post!]!
+  "Search posts by keyword"
+  searchPosts(query: String!): [Post!]!
+}
+
+type Mutation {
+  "Create a new blog post"
+  createPost(title: String!, content: String!, authorId: ID!): Post!
+  "Update an existing post"
+  updatePost(id: ID!, title: String, content: String): Post
+  "Delete a post"
+  deletePost(id: ID!): Boolean!
+}
+
+type Post {
+  id: ID!
+  title: String!
+  content: String!
+  author: Author!
+  createdAt: String!
+}
+
+type Author {
+  id: ID!
+  name: String!
+  email: String!
+}
+```
+
+### Generate
+
+```bash
+mcp-factory from-graphql ./blog-schema.graphql \
+  --endpoint https://api.example.com/graphql \
+  --name blog-server
+```
+
+### Generated Tools
+
+| GraphQL Operation | Tool Name | Type |
+|-------------------|-----------|------|
+| `post(id)` | `post` | Read |
+| `posts(limit, offset)` | `posts` | Read |
+| `searchPosts(query)` | `search_posts` | Read |
+| `createPost(...)` | `create_post` | Write |
+| `updatePost(...)` | `update_post` | Write |
+| `deletePost(id)` | `delete_post` | Write |
+
+### Usage
+
+```bash
+cd ./servers/blog_server
+npm install
+export GRAPHQL_ENDPOINT=https://api.example.com/graphql
+export GRAPHQL_AUTH_TOKEN=your_token  # if needed
+npx tsx src/index.ts
+```
+
+---
+
+## University Ontology
+
+Generate tools and resources from an OWL ontology. Each class gets CRUD tools plus relationship-linking tools, and each class is exposed as an MCP resource.
+
+### Ontology
+
+```turtle
+# university.ttl
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix :     <http://example.org/university#> .
+
+<http://example.org/university> a owl:Ontology ;
+  rdfs:label "University Ontology" .
+
+:Professor a owl:Class ;
+  rdfs:label "Professor" ;
+  rdfs:comment "A university professor" .
+
+:Course a owl:Class ;
+  rdfs:label "Course" ;
+  rdfs:comment "A course offered by the university" .
+
+:name a owl:DatatypeProperty ;
+  rdfs:domain :Professor ;
+  rdfs:range xsd:string .
+
+:department a owl:DatatypeProperty ;
+  rdfs:domain :Professor ;
+  rdfs:range xsd:string .
+
+:title a owl:DatatypeProperty ;
+  rdfs:domain :Course ;
+  rdfs:range xsd:string .
+
+:credits a owl:DatatypeProperty ;
+  rdfs:domain :Course ;
+  rdfs:range xsd:integer .
+
+:teaches a owl:ObjectProperty ;
+  rdfs:domain :Professor ;
+  rdfs:range :Course ;
+  rdfs:comment "A professor teaches a course" .
+```
+
+### Generate
+
+```bash
+mcp-factory from-ontology ./university.ttl --format rdf \
+  --name university-server
+```
+
+### Generated Tools and Resources
+
+| Class | Tools | Resource |
+|-------|-------|----------|
+| Professor | `create_professor`, `get_professor`, `update_professor`, `delete_professor`, `list_professor` | `ontology://professor` |
+| Course | `create_course`, `get_course`, `update_course`, `delete_course`, `list_course` | `ontology://course` |
+
+| Relationship | Tool |
+|--------------|------|
+| Professor teaches Course | `link_professor_teaches` |
+
+### Usage
+
+```bash
+cd ./servers/university_server
+npm install
 npx tsx src/index.ts
 ```
 

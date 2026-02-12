@@ -24,7 +24,7 @@ describe('Provider Configuration', () => {
       const modelIds = Object.keys(CLAUDE_MODELS);
       expect(modelIds.length).toBeGreaterThan(0);
       modelIds.forEach((id) => {
-        expect(id).toMatch(/claude.*4.*5|claude-4/);
+        expect(id).toMatch(/^claude-/);
       });
     });
 
@@ -32,7 +32,7 @@ describe('Provider Configuration', () => {
       const modelIds = Object.keys(OPENAI_MODELS);
       expect(modelIds.length).toBeGreaterThan(0);
       modelIds.forEach((id) => {
-        expect(id).toMatch(/gpt-5/);
+        expect(id).toMatch(/gpt-5|^o[34]/);
       });
     });
 
@@ -45,9 +45,9 @@ describe('Provider Configuration', () => {
     });
 
     it('should have correct default models', () => {
-      expect(DEFAULT_MODELS[LLMProvider.ANTHROPIC]).toMatch(/claude.*4.*5/);
+      expect(DEFAULT_MODELS[LLMProvider.ANTHROPIC]).toMatch(/^claude-/);
       expect(DEFAULT_MODELS[LLMProvider.OPENAI]).toBe('gpt-5.2');
-      expect(DEFAULT_MODELS[LLMProvider.GOOGLE]).toBe('gemini-3-flash-preview');
+      expect(DEFAULT_MODELS[LLMProvider.GOOGLE]).toBe('gemini-3-pro-preview');
     });
   });
 
@@ -58,7 +58,7 @@ describe('Provider Configuration', () => {
         model: 'claude-sonnet-4-5-20250929',
       });
       expect(provider).toBeDefined();
-      expect(provider.providerName).toBe('Anthropic');
+      expect(provider.providerName).toBe('anthropic');
     });
 
     it('should create OpenAI provider', () => {
@@ -67,7 +67,7 @@ describe('Provider Configuration', () => {
         model: 'gpt-5.2',
       });
       expect(provider).toBeDefined();
-      expect(provider.providerName).toBe('OpenAI');
+      expect(provider.providerName).toBe('openai');
     });
 
     it('should create Google provider', () => {
@@ -76,7 +76,7 @@ describe('Provider Configuration', () => {
         model: 'gemini-3-flash-preview',
       });
       expect(provider).toBeDefined();
-      expect(provider.providerName).toBe('Google');
+      expect(provider.providerName).toBe('google');
     });
 
     it('should create Claude Code provider', () => {
@@ -120,8 +120,8 @@ describe('Real API Calls', () => {
         50
       );
 
+      expect(response.error, `API error: ${response.error}`).toBeUndefined();
       expect(response.text).toContain('Hello');
-      expect(response.error).toBeUndefined();
       expect(response.latencyMs).toBeGreaterThan(0);
     }, 60000);
   });
@@ -131,7 +131,6 @@ describe('Real API Calls', () => {
       const provider = createProvider('openai', {
         apiKey: process.env.OPENAI_API_KEY!,
         model: 'gpt-5.2',
-        temperature: 0,
       });
 
       const response = await provider.call(
@@ -140,8 +139,8 @@ describe('Real API Calls', () => {
         50
       );
 
+      expect(response.error, `API error: ${response.error}`).toBeUndefined();
       expect(response.text).toContain('Hello');
-      expect(response.error).toBeUndefined();
       expect(response.latencyMs).toBeGreaterThan(0);
     }, 60000);
   });
@@ -160,8 +159,8 @@ describe('Real API Calls', () => {
         50
       );
 
+      expect(response.error, `API error: ${response.error}`).toBeUndefined();
       expect(response.text).toContain('Hello');
-      expect(response.error).toBeUndefined();
       expect(response.latencyMs).toBeGreaterThan(0);
     }, 60000);
   });

@@ -8,6 +8,11 @@ import {
   CLAUDE_MODELS,
   OPENAI_MODELS,
   GOOGLE_MODELS,
+  MISTRAL_MODELS,
+  DEEPSEEK_MODELS,
+  GROQ_MODELS,
+  XAI_MODELS,
+  COHERE_MODELS,
 } from './providers.js';
 
 // Load .env file on module import
@@ -92,21 +97,22 @@ export function validateConfig(config: FactoryConfig): string[] {
     );
   }
 
-  if (config.provider === LLMProvider.ANTHROPIC && !(config.model in CLAUDE_MODELS)) {
-    errors.push(
-      `Unknown Claude model: ${config.model}. Available: ${Object.keys(CLAUDE_MODELS).join(', ')}`
-    );
-  }
+  // Validate model against known models (when a known model list exists)
+  const modelLists: Partial<Record<LLMProvider, Record<string, string>>> = {
+    [LLMProvider.ANTHROPIC]: CLAUDE_MODELS,
+    [LLMProvider.OPENAI]: OPENAI_MODELS,
+    [LLMProvider.GOOGLE]: GOOGLE_MODELS,
+    [LLMProvider.MISTRAL]: MISTRAL_MODELS,
+    [LLMProvider.DEEPSEEK]: DEEPSEEK_MODELS,
+    [LLMProvider.GROQ]: GROQ_MODELS,
+    [LLMProvider.XAI]: XAI_MODELS,
+    [LLMProvider.COHERE]: COHERE_MODELS,
+  };
 
-  if (config.provider === LLMProvider.OPENAI && !(config.model in OPENAI_MODELS)) {
+  const knownModels = modelLists[config.provider];
+  if (knownModels && !(config.model in knownModels)) {
     errors.push(
-      `Unknown OpenAI model: ${config.model}. Available: ${Object.keys(OPENAI_MODELS).join(', ')}`
-    );
-  }
-
-  if (config.provider === LLMProvider.GOOGLE && !(config.model in GOOGLE_MODELS)) {
-    errors.push(
-      `Unknown Google model: ${config.model}. Available: ${Object.keys(GOOGLE_MODELS).join(', ')}`
+      `Unknown ${config.provider} model: ${config.model}. Available: ${Object.keys(knownModels).join(', ')}`
     );
   }
 
@@ -118,18 +124,24 @@ export function validateConfig(config: FactoryConfig): string[] {
  * Prefers Claude Code OAuth token first, then falls back to other providers.
  */
 export function getDefaultConfig(): FactoryConfig {
-  // Check which API key is available
-  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-    return createFactoryConfig({ provider: LLMProvider.CLAUDE_CODE });
-  }
-  if (process.env.ANTHROPIC_API_KEY) {
-    return createFactoryConfig({ provider: LLMProvider.ANTHROPIC });
-  }
-  if (process.env.OPENAI_API_KEY) {
-    return createFactoryConfig({ provider: LLMProvider.OPENAI });
-  }
-  if (process.env.GOOGLE_API_KEY) {
-    return createFactoryConfig({ provider: LLMProvider.GOOGLE });
+  // Check which API key is available (in priority order)
+  const autoDetectOrder: Array<[string, LLMProvider]> = [
+    ['CLAUDE_CODE_OAUTH_TOKEN', LLMProvider.CLAUDE_CODE],
+    ['ANTHROPIC_API_KEY', LLMProvider.ANTHROPIC],
+    ['OPENAI_API_KEY', LLMProvider.OPENAI],
+    ['GOOGLE_API_KEY', LLMProvider.GOOGLE],
+    ['MISTRAL_API_KEY', LLMProvider.MISTRAL],
+    ['DEEPSEEK_API_KEY', LLMProvider.DEEPSEEK],
+    ['GROQ_API_KEY', LLMProvider.GROQ],
+    ['XAI_API_KEY', LLMProvider.XAI],
+    ['AZURE_OPENAI_API_KEY', LLMProvider.AZURE],
+    ['COHERE_API_KEY', LLMProvider.COHERE],
+  ];
+
+  for (const [envVar, provider] of autoDetectOrder) {
+    if (process.env[envVar]) {
+      return createFactoryConfig({ provider });
+    }
   }
 
   // Default to Anthropic, will fail validation if no key

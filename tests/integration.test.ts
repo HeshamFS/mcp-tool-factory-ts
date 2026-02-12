@@ -12,12 +12,7 @@ import { join } from 'path';
 // Load environment variables
 config({ path: resolve(__dirname, '../.env') });
 
-import {
-  ToolFactoryAgent,
-  createProvider,
-  WebSearcher,
-  LLMProvider,
-} from '../src/index.js';
+import { ToolFactoryAgent, createProvider, WebSearcher, LLMProvider } from '../src/index.js';
 
 describe('Integration Tests', () => {
   // OAuth tokens (sk-ant-oat01-) only work with Claude Agent SDK, not direct API
@@ -57,10 +52,7 @@ describe('Integration Tests', () => {
       'should use web search info in tool generation',
       async () => {
         // First, search for API info
-        const searcher = new WebSearcher(
-          LLMProvider.ANTHROPIC,
-          process.env.ANTHROPIC_API_KEY!
-        );
+        const searcher = new WebSearcher(LLMProvider.ANTHROPIC, process.env.ANTHROPIC_API_KEY!);
 
         const searchResult = await searcher.search('MCP Model Context Protocol tool format');
         expect(searchResult.content.length).toBeGreaterThan(0);
@@ -100,11 +92,10 @@ describe('Integration Tests', () => {
         });
         const anthropicResponse = await anthropicProvider.call('Be concise.', prompt, 50);
 
-        // Test OpenAI
+        // Test OpenAI (gpt-5.2 uses responses API — temperature not supported)
         const openaiProvider = createProvider('openai', {
           apiKey: process.env.OPENAI_API_KEY!,
           model: 'gpt-5.2',
-          temperature: 0,
         });
         const openaiResponse = await openaiProvider.call('Be concise.', prompt, 50);
 
@@ -122,7 +113,7 @@ describe('Integration Tests', () => {
 
   describe('Generated Server Code Validation', () => {
     it.skipIf(!hasAnthropicKey || !templatesExist)(
-      'should generate syntactically valid Python code',
+      'should generate syntactically valid TypeScript code',
       async () => {
         const agent = new ToolFactoryAgent({
           config: {
@@ -160,10 +151,9 @@ describe('Integration Tests', () => {
           },
         });
 
-        const result = await agent.generateFromDescription(
-          'Create a simple ping tool',
-          { serverName: 'PingServer' }
-        );
+        const result = await agent.generateFromDescription('Create a simple ping tool', {
+          serverName: 'PingServer',
+        });
 
         // Create temp directory and write file
         const tempDir = mkdtempSync(join(tmpdir(), 'mcp-test-'));

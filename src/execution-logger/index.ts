@@ -32,6 +32,10 @@ export interface RawLLMCall {
   tokensIn?: number;
   tokensOut?: number;
 
+  // Cost tracking
+  cost?: number;
+  phase?: string;
+
   // Timing
   latencyMs: number;
 
@@ -139,6 +143,8 @@ export class ExecutionLogger {
   toolsGenerated: string[];
   totalTokensIn: number;
   totalTokensOut: number;
+  totalCost: number;
+  costByPhase: Record<string, { cost: number; calls: number }>;
 
   constructor(serverName: string, provider: string, model: string) {
     this.serverName = serverName;
@@ -157,6 +163,8 @@ export class ExecutionLogger {
     this.toolsGenerated = [];
     this.totalTokensIn = 0;
     this.totalTokensOut = 0;
+    this.totalCost = 0;
+    this.costByPhase = {};
   }
 
   /**
@@ -185,6 +193,8 @@ export class ExecutionLogger {
     latencyMs?: number;
     error?: string;
     errorTraceback?: string;
+    cost?: number;
+    phase?: string;
   }): void {
     const call: RawLLMCall = {
       timestamp: new Date().toISOString(),
@@ -200,6 +210,8 @@ export class ExecutionLogger {
       latencyMs: params.latencyMs ?? 0,
       error: params.error,
       errorTraceback: params.errorTraceback,
+      cost: params.cost,
+      phase: params.phase,
     };
     this.llmCalls.push(call);
 
@@ -208,6 +220,16 @@ export class ExecutionLogger {
     }
     if (params.tokensOut) {
       this.totalTokensOut += params.tokensOut;
+    }
+    if (params.cost) {
+      this.totalCost += params.cost;
+      if (params.phase) {
+        if (!this.costByPhase[params.phase]) {
+          this.costByPhase[params.phase] = { cost: 0, calls: 0 };
+        }
+        this.costByPhase[params.phase].cost += params.cost;
+        this.costByPhase[params.phase].calls += 1;
+      }
     }
   }
 
@@ -313,6 +335,7 @@ export class ExecutionLogger {
       `| Tool Executions | \`${this.toolExecutions.length}\` |`,
       `| Total Tokens In | \`${this.totalTokensIn}\` |`,
       `| Total Tokens Out | \`${this.totalTokensOut}\` |`,
+      `| Estimated Cost | \`$${this.totalCost.toFixed(4)}\` |`,
       `| Tools Generated | \`${this.toolsGenerated.length}\` |`,
       '',
       '---',
@@ -324,6 +347,17 @@ export class ExecutionLogger {
       '```',
       '',
     ];
+
+    // Cost Breakdown by Phase
+    const phases = Object.entries(this.costByPhase);
+    if (phases.length > 0) {
+      lines.push('## Cost Breakdown', '', '| Phase | Cost | Calls |', '|-------|------|-------|');
+      for (const [phase, info] of phases) {
+        lines.push(`| ${phase} | \`$${info.cost.toFixed(4)}\` | ${info.calls} |`);
+      }
+      lines.push(`| **Total** | **\`$${this.totalCost.toFixed(4)}\`** | **${this.llmCalls.length}** |`);
+      lines.push('', '---', '');
+    }
 
     // Web Searches
     if (this.webSearches.length > 0) {
@@ -419,6 +453,8 @@ export class ExecutionLogger {
         totalToolExecutions: this.toolExecutions.length,
         totalTokensIn: this.totalTokensIn,
         totalTokensOut: this.totalTokensOut,
+        totalCost: this.totalCost,
+        costByPhase: this.costByPhase,
         toolsGenerated: this.toolsGenerated,
       },
       llmCalls: this.llmCalls,

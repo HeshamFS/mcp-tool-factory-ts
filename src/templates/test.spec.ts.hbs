@@ -1,39 +1,38 @@
 /**
  * Auto-generated tests for MCP server: {{serverName}}
+ * Uses InMemoryTransport for fast, reliable testing.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { spawn, ChildProcess } from 'child_process';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { createServer } from '../src/index.js';
 
 describe('{{serverName}} MCP Server', () => {
   let client: Client;
-  let serverProcess: ChildProcess;
-  let transport: StdioClientTransport;
+  let cleanup: () => Promise<void>;
 
   beforeAll(async () => {
-    // Start the server process
-    serverProcess = spawn('npx', ['tsx', 'src/index.ts'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    transport = new StdioClientTransport({
-      command: 'npx',
-      args: ['tsx', 'src/index.ts'],
-    });
+    // Create server and in-memory transport pair
+    const server = createServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
     client = new Client({
       name: 'test-client',
       version: '1.0.0',
     });
 
-    await client.connect(transport);
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    cleanup = async () => {
+      await client.close();
+      await server.close();
+    };
   });
 
   afterAll(async () => {
-    await client.close();
-    serverProcess?.kill();
+    await cleanup?.();
   });
 
   it('should list all tools', async () => {

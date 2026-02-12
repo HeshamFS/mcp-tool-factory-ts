@@ -100,7 +100,11 @@ Requirements:
 1. Generate INLINE CODE only - NO function definitions, NO interfaces
 2. Use \`params\` directly - it contains the validated input parameters
 3. Return MCP format: { content: [{ type: 'text', text: JSON.stringify(result) }] }
-4. Validate inputs and return early with error if invalid
+4. For errors, use structured error codes: { error: 'ERROR_CODE', message: 'Human-readable message' }
+   - INVALID_INPUT: Invalid or missing input parameters
+   - NOT_FOUND: Requested resource not found
+   - AUTH_ERROR: Authentication or authorization failure
+   - INTERNAL_ERROR: Unexpected internal error
 5. Do NOT wrap in try/catch - the outer handler already does that
 6. Do NOT define interfaces or type aliases - params is already typed
 
@@ -108,7 +112,7 @@ CORRECT Example (inline code that uses params directly):
 \`\`\`
 // Validate inputs
 if (!params.city || typeof params.city !== 'string') {
-  return { content: [{ type: 'text', text: JSON.stringify({ error: 'city is required' }) }] };
+  return { content: [{ type: 'text', text: JSON.stringify({ error: 'INVALID_INPUT', message: 'city is required' }) }] };
 }
 
 // Make API call
@@ -137,9 +141,9 @@ WRONG (do NOT do this):
 Return ONLY the inline TypeScript code, no markdown fences or explanations.`;
 
 /**
- * Prompt for generating Jest tests for a tool.
+ * Prompt for generating Vitest tests for a tool.
  */
-export const GENERATE_TESTS_PROMPT = `Generate Jest tests for this MCP tool.
+export const GENERATE_TESTS_PROMPT = `Generate Vitest tests for this MCP tool.
 
 Tool Specification:
 - Name: {name}
@@ -155,7 +159,7 @@ Generate tests covering:
 
 Use this testing pattern with MCP client:
 \`\`\`typescript
-import { describe, it, expect, beforeAll } from '@jest/globals';
+import { describe, it, expect, beforeAll } from 'vitest';
 
 describe('{name}', () => {
   it('should succeed with valid input', async () => {
@@ -185,6 +189,81 @@ describe('{name}', () => {
 \`\`\`
 
 Return ONLY the TypeScript test code, no markdown fences or explanations.`;
+
+/**
+ * Prompt for extracting resource specifications from a description.
+ */
+export const EXTRACT_RESOURCES_PROMPT = `You are a resource specification extractor for MCP (Model Context Protocol) servers.
+
+MCP Resources expose structured data that LLMs can read for context. They are different from tools:
+- Tools perform ACTIONS (create, update, delete, compute)
+- Resources provide DATA (documents, records, configurations, collections)
+
+Analyze the user's description and identify resources that should be exposed:
+
+User Description:
+{description}
+
+For each resource, determine:
+1. A URI scheme (e.g., "db://users", "api://products", "config://settings")
+2. A human-readable name
+3. A description of what data it provides
+4. MIME type (usually "application/json")
+5. Whether the URI is a template with placeholders (e.g., "db://users/{id}")
+
+Return a JSON array where each element has this structure:
+{
+  "uri": "db://users/{id}",
+  "name": "user_by_id",
+  "description": "Get a specific user record by ID",
+  "mimeType": "application/json",
+  "template": true
+}
+
+Guidelines:
+- Collection endpoints should have both a list resource (db://users) and a single item template (db://users/{id})
+- Configuration or settings should be static resources (template: false)
+- Use descriptive URI schemes that reflect the data source
+- If no resources are appropriate, return an empty array []
+
+Return ONLY the JSON array, no other text.`;
+
+/**
+ * Prompt for extracting prompt specifications from a description.
+ */
+export const EXTRACT_PROMPTS_PROMPT = `You are a prompt specification extractor for MCP (Model Context Protocol) servers.
+
+MCP Prompts are reusable templates that LLMs can discover and use for guided workflows. They help users interact with the server's capabilities effectively.
+
+Analyze the user's description and identify useful prompt templates:
+
+User Description:
+{description}
+
+For each prompt, determine:
+1. A name in snake_case
+2. A description of when to use this prompt
+3. Arguments the prompt accepts (name, description, required)
+4. The template text (use \${argName} for argument substitution)
+
+Return a JSON array where each element has this structure:
+{
+  "name": "analyze_data",
+  "description": "Guide the LLM to analyze data from a specific source",
+  "arguments": [
+    {"name": "source", "description": "The data source to analyze", "required": true},
+    {"name": "format", "description": "Output format preference", "required": false}
+  ],
+  "template": "Please analyze the data from \${source}. Focus on key trends and anomalies. \${format ? 'Format the output as ' + format + '.' : ''}"
+}
+
+Guidelines:
+- Create prompts for common workflows (data analysis, reporting, troubleshooting)
+- Keep templates concise but informative
+- Mark arguments as required only if the prompt can't work without them
+- If no prompts are appropriate, return an empty array []
+
+Return ONLY the JSON array, no other text.`;
 
 /**
  * Replace placeholders in a prompt template.

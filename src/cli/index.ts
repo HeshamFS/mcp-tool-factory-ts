@@ -7,12 +7,42 @@ import chalk from 'chalk';
 import ora from 'ora';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as readline from 'readline';
 import { fileURLToPath } from 'url';
 import type { ProductionConfig } from '../generators/server.js';
 import { LLMProvider } from '../config/providers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * Prompt the user for input.
+ */
+async function prompt(question: string, defaultValue?: string): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const displayDefault = defaultValue ? ` ${chalk.dim(`(${defaultValue})`)}` : '';
+
+  return new Promise((resolve) => {
+    rl.question(`${chalk.cyan('?')} ${question}${displayDefault}: `, (answer) => {
+      rl.close();
+      resolve(answer.trim() || defaultValue || '');
+    });
+  });
+}
+
+/**
+ * Prompt for yes/no confirmation.
+ */
+async function confirm(question: string, defaultValue = false): Promise<boolean> {
+  const hint = defaultValue ? 'Y/n' : 'y/N';
+  const answer = await prompt(`${question} ${chalk.dim(`[${hint}]`)}`);
+  if (!answer) return defaultValue;
+  return answer.toLowerCase().startsWith('y');
+}
 
 // Read version from package.json
 function getVersion(): string {
@@ -60,11 +90,14 @@ program
   .option('-o, --output <path>', 'Output directory for generated files', './servers')
   .option('-n, --name <name>', 'Name for the MCP server', 'GeneratedToolServer')
   .option('-d, --description <desc>', 'Description for package.json and server.json')
-  .option('-g, --github-username <user>', 'GitHub username for MCP Registry publishing (creates io.github.<user>/<name>)')
+  .option(
+    '-g, --github-username <user>',
+    'GitHub username for MCP Registry publishing (creates io.github.<user>/<name>)'
+  )
   .option('-v, --version <ver>', 'Version for the generated server', '1.0.0')
   .option(
     '-p, --provider <provider>',
-    'LLM provider (anthropic, openai, google, claude_code)',
+    'LLM provider (anthropic, openai, google, claude_code, mistral, deepseek, groq, xai, azure, cohere)',
     undefined
   )
   .option('-m, --model <model>', 'Model to use')
@@ -81,27 +114,86 @@ program
   .option('--rate-limit <n>', 'Enable rate limiting with N requests per minute', parseInt)
   .option('--retries', 'Include retry patterns with exponential backoff', true)
   .option('--no-retries', 'Disable retries')
+  .option('--parallel', 'Generate tool implementations in parallel', true)
+  .option('--no-parallel', 'Generate tool implementations sequentially')
+  .option('--concurrency <n>', 'Max concurrent LLM calls when parallel', (v) => parseInt(v, 10), 5)
+  .option('--no-cache', 'Skip the LLM response cache')
+  .option('--stream', 'Stream LLM output tokens as they arrive')
+  .option('--budget <amount>', 'Maximum budget in USD (e.g., --budget 0.50)', parseFloat)
+  .option('--compare-costs', 'Show cost comparison across providers before generating', false)
+  .option('-i, --interactive', 'Prompt for missing options interactively')
   .action(async (description, options) => {
     const { ToolFactoryAgent } = await import('../agent/index.js');
     const { getDefaultConfig } = await import('../config/index.js');
 
-    // Build config
-    let config = getDefaultConfig();
-    if (options.provider) {
-      const providerMap: Record<string, LLMProvider> = {
-        anthropic: LLMProvider.ANTHROPIC,
-        claude_code: LLMProvider.CLAUDE_CODE,
-        openai: LLMProvider.OPENAI,
-        google: LLMProvider.GOOGLE,
-      };
-      const provider = providerMap[options.provider.toLowerCase()];
-      if (provider) {
-        config = { ...config, provider };
+    // Interactive mode: prompt for missing information
+    if (options.interactive || (!options.githubUsername && !process.env.CI)) {
+      console.log();
+      console.log(chalk.bold.blue('MCP Tool Factory - Server Generator'));
+      console.log(chalk.dim('─'.repeat(45)));
+      console.log();
+
+      // Prompt for GitHub username if not provided (required for MCP Registry)
+      if (!options.githubUsername) {
+        const wantsRegistry = await confirm('Do you want to publish to the MCP Registry?', true);
+        if (wantsRegistry) {
+          options.githubUsername = await prompt(
+            'GitHub username (for io.github.<username>/<name>)',
+            process.env.GITHUB_USER || process.env.USER
+          );
+          if (!options.githubUsername) {
+            console.log(
+              chalk.yellow('⚠ No GitHub username provided. Server will use local naming.')
+            );
+          }
+        }
       }
+
+      // Prompt for server name if using default
+      if (options.name === 'GeneratedToolServer') {
+        const customName = await prompt('Server name', 'GeneratedToolServer');
+        if (customName) options.name = customName;
+      }
+
+      // Prompt for description if not provided
+      if (!options.description) {
+        options.description = await prompt(
+          'Server description (optional)',
+          `MCP server generated from: ${description.slice(0, 50)}...`
+        );
+      }
+
+      // Prompt for version
+      if (options.version === '1.0.0') {
+        const customVersion = await prompt('Version', '1.0.0');
+        if (customVersion) options.version = customVersion;
+      }
+
+      console.log();
     }
-    if (options.model) {
-      config = { ...config, model: options.model };
-    }
+
+    // Build config - use createFactoryConfig to get correct default model for provider
+    const { createFactoryConfig } = await import('../config/index.js');
+
+    const providerMap: Record<string, LLMProvider> = {
+      anthropic: LLMProvider.ANTHROPIC,
+      claude_code: LLMProvider.CLAUDE_CODE,
+      openai: LLMProvider.OPENAI,
+      google: LLMProvider.GOOGLE,
+      mistral: LLMProvider.MISTRAL,
+      deepseek: LLMProvider.DEEPSEEK,
+      groq: LLMProvider.GROQ,
+      xai: LLMProvider.XAI,
+      azure: LLMProvider.AZURE,
+      cohere: LLMProvider.COHERE,
+    };
+
+    const provider = options.provider ? providerMap[options.provider.toLowerCase()] : undefined;
+
+    const config = createFactoryConfig({
+      provider,
+      model: options.model,
+    });
 
     // Build output path
     let outputPath = options.output;
@@ -135,6 +227,17 @@ program
       ? `io.github.${options.githubUsername}/${options.name.toLowerCase().replace(/\s+/g, '-')}`
       : null;
 
+    // Parallel/cache display
+    const parallelInfo = options.parallel
+      ? chalk.green(`parallel (max ${options.concurrency})`)
+      : chalk.dim('sequential');
+    const cacheInfo = options.cache === false ? chalk.dim('disabled') : chalk.green('enabled');
+
+    // Budget display
+    const budgetInfo = options.budget
+      ? chalk.yellow(`$${options.budget.toFixed(2)}`)
+      : chalk.dim('none');
+
     panel(
       'Starting Generation',
       `${chalk.bold.blue('MCP Tool Factory')}\n\n` +
@@ -143,11 +246,62 @@ program
         `Provider: ${chalk.cyan(config.provider)}\n` +
         `Model: ${chalk.cyan(config.model)}\n` +
         `Web search: ${options.webSearch ? chalk.green('enabled') : chalk.dim('disabled')}\n` +
+        `Generation: ${parallelInfo}\n` +
+        `LLM cache: ${cacheInfo}\n` +
+        `Budget limit: ${budgetInfo}\n` +
         `Auth env vars: ${options.auth?.length ? chalk.cyan(options.auth.join(', ')) : chalk.dim('none')}\n` +
         `Health check: ${options.healthCheck ? chalk.green('enabled') : chalk.dim('disabled')}\n` +
         `Production: ${prodFeatures.length ? chalk.cyan(prodFeatures.join(', ')) : chalk.dim('none')}\n` +
         `Output directory: ${chalk.yellow(outputPath)}`
     );
+
+    // Show cost comparison if requested
+    if (options.compareCosts) {
+      const { estimateCost, formatCost } = await import('../config/pricing.js');
+      const { DEFAULT_MODELS } = await import('../config/providers.js');
+
+      // Estimate ~15K input + ~10K output tokens for a typical generation
+      const estIn = 15000;
+      const estOut = 10000;
+
+      console.log();
+      console.log(chalk.bold('Provider Cost Comparison') + chalk.dim(` (est. ~${(estIn / 1000).toFixed(0)}K in + ~${(estOut / 1000).toFixed(0)}K out tokens):`));
+
+      const comparisons: Array<{ label: string; cost: number | null; selected: boolean }> = [];
+
+      const providerEntries: Array<[string, LLMProvider]> = [
+        ['anthropic', LLMProvider.ANTHROPIC],
+        ['openai', LLMProvider.OPENAI],
+        ['google', LLMProvider.GOOGLE],
+        ['mistral', LLMProvider.MISTRAL],
+        ['deepseek', LLMProvider.DEEPSEEK],
+        ['groq', LLMProvider.GROQ],
+        ['xai', LLMProvider.XAI],
+        ['cohere', LLMProvider.COHERE],
+      ];
+
+      for (const [name, prov] of providerEntries) {
+        const model = DEFAULT_MODELS[prov];
+        const cost = estimateCost(model, estIn, estOut);
+        comparisons.push({
+          label: `${name}/${model}`,
+          cost,
+          selected: prov === config.provider,
+        });
+      }
+
+      // Sort by cost
+      comparisons.sort((a, b) => (a.cost ?? Infinity) - (b.cost ?? Infinity));
+
+      const cheapest = comparisons[0]?.cost;
+      for (const c of comparisons) {
+        const costStr = c.cost !== null ? formatCost(c.cost) : 'unknown';
+        const marker = c.selected ? chalk.green(' << selected') : '';
+        const cheapMarker = c.cost === cheapest && !c.selected ? chalk.cyan(' (cheapest)') : '';
+        console.log(`  ${c.label.padEnd(40)} ${costStr}${marker}${cheapMarker}`);
+      }
+      console.log();
+    }
 
     const spinner = ora('Initializing agent...').start();
 
@@ -160,6 +314,18 @@ program
 
       spinner.text = 'Extracting tool specifications...';
 
+      // Set up streaming callback if enabled
+      const onStreamToken = options.stream
+        ? (token: string) => {
+            // When streaming, stop spinner and write tokens directly
+            if (spinner.isSpinning) {
+              spinner.stop();
+              console.log(chalk.dim('\n[Streaming LLM output...]'));
+            }
+            process.stdout.write(chalk.gray(token));
+          }
+        : undefined;
+
       const result = await agent.generateFromDescription(description, {
         serverName: options.name,
         description: options.description,
@@ -169,7 +335,19 @@ program
         authEnvVars: options.auth || [],
         includeHealthCheck: options.healthCheck,
         productionConfig,
+        parallel: options.stream ? false : options.parallel, // Disable parallel when streaming
+        maxConcurrency: options.concurrency,
+        skipCache: options.cache === false,
+        stream: options.stream,
+        onStreamToken,
+        budget: options.budget,
       });
+
+      // Newline after streaming output
+      if (options.stream) {
+        console.log('\n');
+        spinner.start();
+      }
 
       spinner.text = 'Writing generated files...';
 
@@ -185,12 +363,15 @@ program
       // Show summary
       console.log();
       const filesList = [
-        `  - ${outputPath}/server.ts`,
-        `  - ${outputPath}/tests/test_tools.spec.ts`,
+        `  - ${outputPath}/src/index.ts`,
+        `  - ${outputPath}/tests/tools.test.ts`,
+        `  - ${outputPath}/docs/ ${chalk.cyan('(API documentation)')}`,
         `  - ${outputPath}/README.md`,
+        `  - ${outputPath}/CHANGELOG.md`,
         `  - ${outputPath}/skill.md`,
         `  - ${outputPath}/Dockerfile`,
         `  - ${outputPath}/package.json`,
+        `  - ${outputPath}/tsconfig.json`,
         `  - ${outputPath}/server.json ${chalk.cyan('(MCP Registry)')}`,
         `  - ${outputPath}/.github/workflows/ci.yml ${chalk.cyan('(CI/CD)')}`,
       ];
@@ -199,9 +380,28 @@ program
         filesList.push(
           `  - ${outputPath}/EXECUTION_LOG.md ${chalk.green('(full execution trace)')}`
         );
-        filesList.push(
-          `  - ${outputPath}/execution_log.json ${chalk.dim('(machine-readable)')}`
-        );
+        filesList.push(`  - ${outputPath}/execution_log.json ${chalk.dim('(machine-readable)')}`);
+      }
+
+      // Build usage summary
+      const execLog = result.executionLog;
+      let usageSummary = '';
+      if (execLog && (execLog.totalCost > 0 || execLog.llmCallCount > 0)) {
+        usageSummary =
+          `\n\n${chalk.bold('Usage:')}\n` +
+          `  Provider: ${chalk.cyan(`${config.provider} (${config.model})`)}\n` +
+          `  Tokens: ${chalk.yellow(execLog.totalTokensIn.toLocaleString())} in / ${chalk.yellow(execLog.totalTokensOut.toLocaleString())} out\n` +
+          `  LLM Calls: ${chalk.yellow(String(execLog.llmCallCount))}\n` +
+          `  Estimated Cost: ${chalk.green(`$${execLog.totalCost.toFixed(4)}`)}`;
+
+        // Per-phase breakdown
+        if (execLog.costBreakdown.length > 0) {
+          usageSummary += '\n\n' + chalk.bold('Cost Breakdown:');
+          for (const entry of execLog.costBreakdown) {
+            const phaseName = entry.phase.replace(/_/g, ' ');
+            usageSummary += `\n  ${phaseName.padEnd(22)} $${entry.cost.toFixed(4)}  (${entry.calls} call${entry.calls !== 1 ? 's' : ''})`;
+          }
+        }
       }
 
       panel(
@@ -209,6 +409,7 @@ program
         `${chalk.bold.green('Successfully generated MCP server!')}\n\n` +
           `${chalk.bold('Tools created:')}\n` +
           result.toolSpecs.map((spec) => `  - ${spec.name}: ${spec.description}`).join('\n') +
+          usageSummary +
           `\n\n${chalk.bold('Files generated:')}\n` +
           filesList.join('\n')
       );
@@ -217,17 +418,36 @@ program
       console.log(chalk.bold('Next steps:'));
       console.log(`  1. cd ${outputPath}`);
       console.log('  2. npm install');
-      console.log('  3. npx tsx server.ts');
+      console.log('  3. npx tsx src/index.ts');
       console.log();
       console.log(chalk.dim('Or add to Claude Code config:'));
       const serverName = options.name.toLowerCase();
-      const serverPath = `${outputPath}/server.ts`;
+      const serverPath = `${outputPath}/src/index.ts`;
       console.log(
         `  {"mcpServers": {"${serverName}": {"command": "npx", "args": ["tsx", "${serverPath}"]}}}`
       );
+
+      // Registry publishing instructions
+      if (mcpName) {
+        console.log();
+        console.log(chalk.bold.blue('Registry Publishing:'));
+        console.log(chalk.dim('  To publish your MCP server to the registry:'));
+        console.log('  1. npm publish --access public');
+        console.log('  2. brew install modelcontextprotocol/tap/mcp-publisher');
+        console.log('  3. mcp-publisher login github');
+        console.log('  4. mcp-publisher publish');
+        console.log();
+        console.log(chalk.dim(`  Registry URL: https://registry.modelcontextprotocol.io/servers/${mcpName}`));
+      }
     } catch (error) {
       spinner.fail('Generation failed');
-      console.error(chalk.red(error instanceof Error ? error.message : String(error)));
+      const { BudgetExceededError } = await import('../agent/agent.js');
+      if (error instanceof BudgetExceededError) {
+        console.error(chalk.yellow(`\nBudget exceeded: ${error.message}`));
+        console.error(chalk.dim('Use --budget <amount> to set a higher limit, or remove the flag.'));
+      } else {
+        console.error(chalk.red(error instanceof Error ? error.message : String(error)));
+      }
       process.exit(1);
     }
   });
@@ -245,6 +465,7 @@ program
   .option('-d, --description <desc>', 'Description for package.json and server.json')
   .option('-g, --github-username <user>', 'GitHub username for MCP Registry publishing')
   .option('-v, --version <ver>', 'Version for the generated server', '1.0.0')
+  .option('-i, --interactive', 'Prompt for missing options interactively')
   .action(async (openapiPath, options) => {
     const { ToolFactoryAgent } = await import('../agent/index.js');
     const { OpenAPIServerGenerator } = await import('../openapi/index.js');
@@ -278,6 +499,50 @@ program
     if (!serverName) {
       const apiTitle = (info.title as string) || 'API';
       serverName = apiTitle.replace(/[\s-]/g, '').slice(0, 30) + 'Server';
+    }
+
+    // Interactive mode: prompt for missing information
+    if (options.interactive || (!options.githubUsername && !process.env.CI)) {
+      console.log();
+      console.log(chalk.bold.blue('MCP Tool Factory - OpenAPI Server Generator'));
+      console.log(chalk.dim('─'.repeat(50)));
+      console.log();
+
+      // Prompt for GitHub username if not provided (required for MCP Registry)
+      if (!options.githubUsername) {
+        const wantsRegistry = await confirm('Do you want to publish to the MCP Registry?', true);
+        if (wantsRegistry) {
+          options.githubUsername = await prompt(
+            'GitHub username (for io.github.<username>/<name>)',
+            process.env.GITHUB_USER || process.env.USER
+          );
+          if (!options.githubUsername) {
+            console.log(
+              chalk.yellow('⚠ No GitHub username provided. Server will use local naming.')
+            );
+          }
+        }
+      }
+
+      // Prompt for server name
+      const customName = await prompt('Server name', serverName);
+      if (customName) serverName = customName;
+
+      // Prompt for description if not provided
+      if (!options.description) {
+        options.description = await prompt(
+          'Server description (optional)',
+          (info.description as string) || `MCP server for ${info.title || 'API'}`
+        );
+      }
+
+      // Prompt for version
+      if (options.version === '1.0.0') {
+        const customVersion = await prompt('Version', (info.version as string) || '1.0.0');
+        if (customVersion) options.version = customVersion;
+      }
+
+      console.log();
     }
 
     // Build output path
@@ -354,10 +619,24 @@ program
       if (authEnvVars.length > 0) {
         console.log(`  2. export ${authEnvVars[0]}=your_api_key`);
         console.log('  3. npm install');
-        console.log('  4. npx tsx server.ts');
+        console.log('  4. npx tsx src/index.ts');
       } else {
         console.log('  2. npm install');
-        console.log('  3. npx tsx server.ts');
+        console.log('  3. npx tsx src/index.ts');
+      }
+
+      // Registry publishing instructions
+      if (options.githubUsername) {
+        const mcpNameOpenApi = `io.github.${options.githubUsername}/${serverName.toLowerCase().replace(/\s+/g, '-')}`;
+        console.log();
+        console.log(chalk.bold.blue('Registry Publishing:'));
+        console.log(chalk.dim('  To publish your MCP server to the registry:'));
+        console.log('  1. npm publish --access public');
+        console.log('  2. brew install modelcontextprotocol/tap/mcp-publisher');
+        console.log('  3. mcp-publisher login github');
+        console.log('  4. mcp-publisher publish');
+        console.log();
+        console.log(chalk.dim(`  Registry URL: https://registry.modelcontextprotocol.io/servers/${mcpNameOpenApi}`));
       }
     } catch (error) {
       spinner.fail('Generation failed');
@@ -372,10 +651,7 @@ program
 program
   .command('from-database')
   .description('Generate MCP server with CRUD tools from a database')
-  .argument(
-    '<database-path>',
-    'Path to SQLite database file or PostgreSQL connection string'
-  )
+  .argument('<database-path>', 'Path to SQLite database file or PostgreSQL connection string')
   .option('-t, --type <type>', 'Database type (sqlite, postgresql)', 'sqlite')
   .option('-o, --output <path>', 'Output directory for generated files', './servers')
   .option('-n, --name <name>', 'Name for the MCP server (auto-generated if not provided)')
@@ -383,6 +659,7 @@ program
   .option('-g, --github-username <user>', 'GitHub username for MCP Registry publishing')
   .option('-v, --version <ver>', 'Version for the generated server', '1.0.0')
   .option('-T, --tables <tables...>', 'Specific tables to include (default: all tables)')
+  .option('-i, --interactive', 'Prompt for missing options interactively')
   .action(async (databasePath, options) => {
     const { DatabaseServerGenerator, DatabaseType } = await import('../database/index.js');
     const { ServerGenerator } = await import('../generators/server.js');
@@ -393,6 +670,46 @@ program
 
     // Parse database type
     const dbType = options.type === 'postgresql' ? DatabaseType.POSTGRESQL : DatabaseType.SQLITE;
+
+    // Interactive mode: prompt for missing information
+    if (options.interactive || (!options.githubUsername && !process.env.CI)) {
+      console.log();
+      console.log(chalk.bold.blue('MCP Tool Factory - Database Server Generator'));
+      console.log(chalk.dim('─'.repeat(50)));
+      console.log();
+
+      // Prompt for GitHub username if not provided (required for MCP Registry)
+      if (!options.githubUsername) {
+        const wantsRegistry = await confirm('Do you want to publish to the MCP Registry?', true);
+        if (wantsRegistry) {
+          options.githubUsername = await prompt(
+            'GitHub username (for io.github.<username>/<name>)',
+            process.env.GITHUB_USER || process.env.USER
+          );
+          if (!options.githubUsername) {
+            console.log(
+              chalk.yellow('⚠ No GitHub username provided. Server will use local naming.')
+            );
+          }
+        }
+      }
+
+      // Prompt for description if not provided
+      if (!options.description) {
+        options.description = await prompt(
+          'Server description (optional)',
+          `Database CRUD server for ${path.basename(databasePath)}`
+        );
+      }
+
+      // Prompt for version
+      if (options.version === '1.0.0') {
+        const customVersion = await prompt('Version', '1.0.0');
+        if (customVersion) options.version = customVersion;
+      }
+
+      console.log();
+    }
 
     // Auto-generate name
     let serverName = options.name;
@@ -423,8 +740,7 @@ program
     }
 
     // Determine auth env var based on database type
-    const authEnvVars =
-      dbType === DatabaseType.POSTGRESQL ? ['DATABASE_URL'] : ['DATABASE_PATH'];
+    const authEnvVars = dbType === DatabaseType.POSTGRESQL ? ['DATABASE_URL'] : ['DATABASE_PATH'];
 
     panel(
       'Database to MCP',
@@ -467,6 +783,7 @@ program
         packageJson: serverGenerator.generatePackageJson(serverName, toolSpecs, {
           githubUsername: options.githubUsername,
           description: serverDesc,
+          version: options.version,
         }),
         tsconfigJson: serverGenerator.generateTsConfig(),
         githubActions: serverGenerator.generateGitHubActions(serverName, authEnvVars),
@@ -476,6 +793,9 @@ program
           version: options.version,
           description: serverDesc,
         }),
+        changelog: docsGenerator.generateChangelog(serverName, toolSpecs, options.version),
+        toolsSpec: docsGenerator.generateToolsSpec(serverName, toolSpecs),
+        apiDocsIndex: docsGenerator.generateApiDocsIndex(serverName, toolSpecs),
       });
 
       spinner.text = 'Writing files...';
@@ -490,7 +810,9 @@ program
       const filesList = [
         `  - ${outputPath}/src/index.ts`,
         `  - ${outputPath}/tests/tools.test.ts`,
+        `  - ${outputPath}/docs/ ${chalk.cyan('(API documentation)')}`,
         `  - ${outputPath}/README.md`,
+        `  - ${outputPath}/CHANGELOG.md`,
         `  - ${outputPath}/skill.md`,
         `  - ${outputPath}/Dockerfile`,
         `  - ${outputPath}/package.json`,
@@ -524,6 +846,369 @@ program
       }
       console.log('  3. npm install');
       console.log('  4. npx tsx src/index.ts');
+
+      // Registry publishing instructions
+      if (options.githubUsername) {
+        const mcpNameDb = `io.github.${options.githubUsername}/${serverName.toLowerCase().replace(/\s+/g, '-')}`;
+        console.log();
+        console.log(chalk.bold.blue('Registry Publishing:'));
+        console.log(chalk.dim('  To publish your MCP server to the registry:'));
+        console.log('  1. npm publish --access public');
+        console.log('  2. brew install modelcontextprotocol/tap/mcp-publisher');
+        console.log('  3. mcp-publisher login github');
+        console.log('  4. mcp-publisher publish');
+        console.log();
+        console.log(chalk.dim(`  Registry URL: https://registry.modelcontextprotocol.io/servers/${mcpNameDb}`));
+      }
+    } catch (error) {
+      spinner.fail('Generation failed');
+      console.error(chalk.red(error instanceof Error ? error.message : String(error)));
+      process.exit(1);
+    }
+  });
+
+/**
+ * from-graphql command - generate MCP server from GraphQL schema.
+ */
+program
+  .command('from-graphql')
+  .description('Generate MCP server from GraphQL SDL schema')
+  .argument('<schema-path>', 'Path to .graphql schema file')
+  .option('-e, --endpoint <url>', 'GraphQL endpoint URL')
+  .option('-o, --output <path>', 'Output directory for generated files', './servers')
+  .option('-n, --name <name>', 'Name for the MCP server (auto-generated if not provided)')
+  .option('-d, --description <desc>', 'Description for package.json and server.json')
+  .option('-g, --github-username <user>', 'GitHub username for MCP Registry publishing')
+  .option('-v, --version <ver>', 'Version for the generated server', '1.0.0')
+  .option('-i, --interactive', 'Prompt for missing options interactively')
+  .action(async (schemaPath, options) => {
+    const { ToolFactoryAgent } = await import('../agent/index.js');
+
+    // Check file exists
+    if (!fs.existsSync(schemaPath)) {
+      console.error(chalk.red(`Error: File not found: ${schemaPath}`));
+      process.exit(1);
+    }
+
+    // Load schema
+    const schemaString = fs.readFileSync(schemaPath, 'utf-8');
+
+    // Auto-generate name from file
+    let serverName = options.name;
+    if (!serverName) {
+      const baseName = path.basename(schemaPath, path.extname(schemaPath));
+      serverName =
+        baseName
+          .split(/[-_]/)
+          .map((s: string) => s.charAt(0).toUpperCase() + s.slice(1))
+          .join('') + 'Server';
+    }
+
+    // Interactive mode: prompt for missing information
+    if (options.interactive || (!options.githubUsername && !process.env.CI)) {
+      console.log();
+      console.log(chalk.bold.blue('MCP Tool Factory - GraphQL Server Generator'));
+      console.log(chalk.dim('─'.repeat(50)));
+      console.log();
+
+      // Prompt for GitHub username if not provided (required for MCP Registry)
+      if (!options.githubUsername) {
+        const wantsRegistry = await confirm('Do you want to publish to the MCP Registry?', true);
+        if (wantsRegistry) {
+          options.githubUsername = await prompt(
+            'GitHub username (for io.github.<username>/<name>)',
+            process.env.GITHUB_USER || process.env.USER
+          );
+          if (!options.githubUsername) {
+            console.log(
+              chalk.yellow('⚠ No GitHub username provided. Server will use local naming.')
+            );
+          }
+        }
+      }
+
+      // Prompt for server name
+      const customName = await prompt('Server name', serverName);
+      if (customName) serverName = customName;
+
+      // Prompt for description if not provided
+      if (!options.description) {
+        options.description = await prompt(
+          'Server description (optional)',
+          `GraphQL MCP server for ${path.basename(schemaPath)}`
+        );
+      }
+
+      // Prompt for version
+      if (options.version === '1.0.0') {
+        const customVersion = await prompt('Version', '1.0.0');
+        if (customVersion) options.version = customVersion;
+      }
+
+      console.log();
+    }
+
+    // Build output path
+    let outputPath = options.output;
+    if (
+      outputPath === './servers' ||
+      outputPath.endsWith('/servers') ||
+      outputPath.endsWith('\\servers')
+    ) {
+      const serverDirName = serverName.toLowerCase().replace(/[\s-]/g, '_');
+      outputPath = path.join(outputPath, serverDirName);
+    }
+
+    panel(
+      'GraphQL to MCP',
+      `${chalk.bold.blue('MCP Tool Factory - GraphQL')}\n\n` +
+        `${chalk.bold('Schema:')} ${chalk.green(schemaPath)}\n` +
+        (options.endpoint ? `${chalk.bold('Endpoint:')} ${chalk.yellow(options.endpoint)}\n` : '') +
+        `${chalk.bold('Server Name:')} ${chalk.green(serverName)}\n` +
+        `${chalk.bold('Output:')} ${chalk.yellow(outputPath)}`
+    );
+
+    const spinner = ora('Parsing GraphQL schema...').start();
+
+    try {
+      // GraphQL generation doesn't need LLM - it's deterministic
+      const agent = new ToolFactoryAgent({ requireLlm: false });
+
+      spinner.text = 'Generating MCP server code...';
+      const result = await agent.generateFromGraphQL(schemaString, {
+        endpoint: options.endpoint,
+        serverName,
+        description: options.description,
+        githubUsername: options.githubUsername,
+        version: options.version,
+      });
+
+      spinner.text = 'Writing files...';
+
+      // Ensure output directory exists
+      fs.mkdirSync(outputPath, { recursive: true });
+
+      // Write files
+      const { writeServerToDirectory } = await import('../models/generated-server.js');
+      await writeServerToDirectory(result, outputPath);
+
+      spinner.succeed('Done!');
+
+      // Show summary
+      console.log();
+      panel(
+        'Generation Complete',
+        `${chalk.bold.green('Successfully generated MCP server!')}\n\n` +
+          `${chalk.bold('Tools generated:')} ${result.toolSpecs.length}\n\n` +
+          `${chalk.bold('Tools:')}\n` +
+          result.toolSpecs
+            .slice(0, 10)
+            .map((spec) => `  - ${spec.name}`)
+            .join('\n') +
+          (result.toolSpecs.length > 10 ? `\n  ... and ${result.toolSpecs.length - 10} more` : '')
+      );
+
+      console.log();
+      console.log(chalk.bold('Next steps:'));
+      console.log(`  1. cd ${outputPath}`);
+      if (options.endpoint) {
+        console.log(`  2. export GRAPHQL_ENDPOINT=${options.endpoint}`);
+      } else {
+        console.log('  2. export GRAPHQL_ENDPOINT=https://your-api.com/graphql');
+      }
+      console.log('  3. export GRAPHQL_AUTH_TOKEN=your_token  # if needed');
+      console.log('  4. npm install');
+      console.log('  5. npx tsx src/index.ts');
+
+      // Registry publishing instructions
+      if (options.githubUsername) {
+        const mcpNameGql = `io.github.${options.githubUsername}/${serverName.toLowerCase().replace(/\s+/g, '-')}`;
+        console.log();
+        console.log(chalk.bold.blue('Registry Publishing:'));
+        console.log(chalk.dim('  To publish your MCP server to the registry:'));
+        console.log('  1. npm publish --access public');
+        console.log('  2. brew install modelcontextprotocol/tap/mcp-publisher');
+        console.log('  3. mcp-publisher login github');
+        console.log('  4. mcp-publisher publish');
+        console.log();
+        console.log(chalk.dim(`  Registry URL: https://registry.modelcontextprotocol.io/servers/${mcpNameGql}`));
+      }
+    } catch (error) {
+      spinner.fail('Generation failed');
+      console.error(chalk.red(error instanceof Error ? error.message : String(error)));
+      process.exit(1);
+    }
+  });
+
+/**
+ * from-ontology command - generate MCP server from ontology definition.
+ */
+program
+  .command('from-ontology')
+  .description('Generate MCP server from an ontology (RDF/OWL, JSON-LD, or custom YAML)')
+  .argument('<ontology-path>', 'Path to ontology file (.ttl, .rdf, .jsonld, .yaml, .yml)')
+  .option('--format <format>', 'Ontology format: rdf, jsonld, yaml (auto-detected if not provided)')
+  .option('-o, --output <path>', 'Output directory for generated files', './servers')
+  .option('-n, --name <name>', 'Name for the MCP server (auto-generated if not provided)')
+  .option('-d, --description <desc>', 'Description for package.json and server.json')
+  .option('-g, --github-username <user>', 'GitHub username for MCP Registry publishing')
+  .option('-v, --version <ver>', 'Version for the generated server', '1.0.0')
+  .option('-i, --interactive', 'Prompt for missing options interactively')
+  .action(async (ontologyPath, options) => {
+    const { ToolFactoryAgent } = await import('../agent/index.js');
+
+    // Check file exists
+    if (!fs.existsSync(ontologyPath)) {
+      console.error(chalk.red(`Error: File not found: ${ontologyPath}`));
+      process.exit(1);
+    }
+
+    // Read ontology content
+    const content = fs.readFileSync(ontologyPath, 'utf-8');
+
+    // Auto-detect format from file extension if not provided
+    let format = options.format as 'rdf' | 'jsonld' | 'yaml' | undefined;
+    if (!format) {
+      const ext = path.extname(ontologyPath).toLowerCase();
+      if (ext === '.ttl' || ext === '.rdf' || ext === '.owl' || ext === '.n3') {
+        format = 'rdf';
+      } else if (ext === '.jsonld') {
+        format = 'jsonld';
+      } else if (ext === '.yaml' || ext === '.yml') {
+        format = 'yaml';
+      }
+    }
+
+    // Auto-generate name from file if not provided
+    let serverName = options.name;
+    if (!serverName) {
+      const baseName = path.basename(ontologyPath, path.extname(ontologyPath));
+      serverName =
+        baseName
+          .split(/[-_]/)
+          .map((s: string) => s.charAt(0).toUpperCase() + s.slice(1))
+          .join('') + 'Server';
+    }
+
+    // Interactive mode: prompt for missing information
+    if (options.interactive || (!options.githubUsername && !process.env.CI)) {
+      console.log();
+      console.log(chalk.bold.blue('MCP Tool Factory - Ontology Server Generator'));
+      console.log(chalk.dim('─'.repeat(50)));
+      console.log();
+
+      if (!options.githubUsername) {
+        const wantsRegistry = await confirm('Do you want to publish to the MCP Registry?', true);
+        if (wantsRegistry) {
+          options.githubUsername = await prompt(
+            'GitHub username (for io.github.<username>/<name>)',
+            process.env.GITHUB_USER || process.env.USER
+          );
+          if (!options.githubUsername) {
+            console.log(
+              chalk.yellow('⚠ No GitHub username provided. Server will use local naming.')
+            );
+          }
+        }
+      }
+
+      const customName = await prompt('Server name', serverName);
+      if (customName) serverName = customName;
+
+      if (!options.description) {
+        options.description = await prompt(
+          'Server description (optional)',
+          `Ontology-based MCP server from ${path.basename(ontologyPath)}`
+        );
+      }
+
+      if (options.version === '1.0.0') {
+        const customVersion = await prompt('Version', '1.0.0');
+        if (customVersion) options.version = customVersion;
+      }
+
+      console.log();
+    }
+
+    // Build output path
+    let outputPath = options.output;
+    if (
+      outputPath === './servers' ||
+      outputPath.endsWith('/servers') ||
+      outputPath.endsWith('\\servers')
+    ) {
+      const serverDirName = serverName.toLowerCase().replace(/[\s-]/g, '_');
+      outputPath = path.join(outputPath, serverDirName);
+    }
+
+    panel(
+      'Ontology to MCP',
+      `${chalk.bold.blue('MCP Tool Factory - Ontology')}\n\n` +
+        `${chalk.bold('Ontology:')} ${chalk.green(ontologyPath)}\n` +
+        `${chalk.bold('Format:')} ${chalk.cyan(format ?? 'auto-detect')}\n` +
+        `${chalk.bold('Server Name:')} ${chalk.green(serverName)}\n` +
+        `${chalk.bold('Output:')} ${chalk.yellow(outputPath)}`
+    );
+
+    const spinner = ora('Parsing ontology...').start();
+
+    try {
+      // Ontology generation doesn't need LLM - it's deterministic
+      const agent = new ToolFactoryAgent({ requireLlm: false });
+
+      spinner.text = 'Generating MCP server code...';
+      const result = await agent.generateFromOntology(content, {
+        format,
+        serverName,
+        description: options.description,
+        githubUsername: options.githubUsername,
+        version: options.version,
+      });
+
+      spinner.text = 'Writing files...';
+
+      // Ensure output directory exists
+      fs.mkdirSync(outputPath, { recursive: true });
+
+      // Write files
+      const { writeServerToDirectory } = await import('../models/generated-server.js');
+      await writeServerToDirectory(result, outputPath);
+
+      spinner.succeed('Done!');
+
+      // Show summary
+      console.log();
+      panel(
+        'Generation Complete',
+        `${chalk.bold.green('Successfully generated MCP server!')}\n\n` +
+          `${chalk.bold('Tools generated:')} ${result.toolSpecs.length}\n\n` +
+          `${chalk.bold('Tools:')}\n` +
+          result.toolSpecs
+            .slice(0, 10)
+            .map((spec) => `  - ${spec.name}`)
+            .join('\n') +
+          (result.toolSpecs.length > 10 ? `\n  ... and ${result.toolSpecs.length - 10} more` : '')
+      );
+
+      console.log();
+      console.log(chalk.bold('Next steps:'));
+      console.log(`  1. cd ${outputPath}`);
+      console.log('  2. npm install');
+      console.log('  3. npx tsx src/index.ts');
+
+      // Registry publishing instructions
+      if (options.githubUsername) {
+        const mcpNameOnt = `io.github.${options.githubUsername}/${serverName.toLowerCase().replace(/\s+/g, '-')}`;
+        console.log();
+        console.log(chalk.bold.blue('Registry Publishing:'));
+        console.log(chalk.dim('  To publish your MCP server to the registry:'));
+        console.log('  1. npm publish --access public');
+        console.log('  2. brew install modelcontextprotocol/tap/mcp-publisher');
+        console.log('  3. mcp-publisher login github');
+        console.log('  4. mcp-publisher publish');
+        console.log();
+        console.log(chalk.dim(`  Registry URL: https://registry.modelcontextprotocol.io/servers/${mcpNameOnt}`));
+      }
     } catch (error) {
       spinner.fail('Generation failed');
       console.error(chalk.red(error instanceof Error ? error.message : String(error)));
@@ -550,9 +1235,10 @@ program
       process.exit(1);
     }
 
-    const child = spawn('npx', ['jest', '--config', path.join(serverPath, 'jest.config.js')], {
+    const child = spawn('npx', ['vitest', 'run'], {
       stdio: 'inherit',
       shell: true,
+      cwd: serverPath,
     });
 
     child.on('close', (code) => {
@@ -572,21 +1258,27 @@ program
 program
   .command('serve')
   .description('Start an MCP server for testing')
-  .argument('<server-path>', 'Directory containing server.ts')
-  .option('-t, --transport <type>', 'MCP transport to use (stdio, sse)', 'stdio')
-  .option('-p, --port <port>', 'Port for SSE transport', '8000')
+  .argument('<server-path>', 'Directory containing src/index.ts')
+  .option('-t, --transport <type>', 'MCP transport to use (stdio, http)', 'stdio')
+  .option('-p, --port <port>', 'Port for HTTP transport', '8000')
   .action(async (serverPath, options) => {
     const { spawn } = await import('child_process');
 
-    const serverFile = path.join(serverPath, 'server.ts');
+    // Try new location first, fall back to legacy location
+    let serverFile = path.join(serverPath, 'src', 'index.ts');
     if (!fs.existsSync(serverFile)) {
-      console.error(chalk.red(`Error: Server file not found: ${serverFile}`));
+      serverFile = path.join(serverPath, 'server.ts');
+    }
+    if (!fs.existsSync(serverFile)) {
+      console.error(chalk.red(`Error: Server file not found. Looked for:`));
+      console.error(chalk.red(`  - ${path.join(serverPath, 'src', 'index.ts')}`));
+      console.error(chalk.red(`  - ${path.join(serverPath, 'server.ts')}`));
       process.exit(1);
     }
 
     console.log(chalk.bold('Starting MCP server...'));
     console.log(`Transport: ${options.transport}`);
-    if (options.transport === 'sse') {
+    if (options.transport === 'http') {
       console.log(`Port: ${options.port}`);
     }
     console.log();
@@ -634,14 +1326,18 @@ program
         `${chalk.bold('Commands:')}\n` +
         '  generate      Create MCP server from natural language\n' +
         '  from-openapi  Create MCP server from OpenAPI spec\n' +
+        '  from-graphql  Create MCP server from GraphQL schema\n' +
         '  from-database Create MCP server with CRUD tools from database\n' +
+        '  from-ontology Create MCP server from ontology (RDF/OWL, JSON-LD, YAML)\n' +
         '  test          Run tests for generated server\n' +
         '  serve         Start MCP server for testing\n\n' +
         `${chalk.bold('Features:')}\n` +
-        '  - Multi-provider LLM support (Anthropic, OpenAI, Google)\n' +
+        '  - 10+ LLM providers via Vercel AI SDK\n' +
+        '    (Anthropic, OpenAI, Google, Mistral, DeepSeek, Groq, xAI, Azure, Cohere)\n' +
         '  - Web search for API documentation\n' +
         '  - OpenAPI with auth (API Key, Bearer, OAuth2)\n' +
         '  - Database CRUD (SQLite, PostgreSQL)\n' +
+        '  - Ontology support (RDF/OWL, JSON-LD, YAML)\n' +
         '  - Health check endpoints\n' +
         '  - GitHub Actions CI/CD\n' +
         '  - Full execution logging\n\n' +

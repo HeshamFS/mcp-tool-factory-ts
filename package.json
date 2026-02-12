@@ -1,8 +1,8 @@
 {
   "name": "@heshamfsalama/mcp-tool-factory",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "mcpName": "io.github.HeshamFS/mcp-tool-factory",
-  "description": "Generate MCP servers from natural language descriptions, OpenAPI specs, or database schemas. Supports Claude, Claude Code, OpenAI, and Google Gemini.",
+  "description": "Generate MCP servers from natural language descriptions, OpenAPI specs, database schemas, GraphQL, or ontologies. Supports 10+ LLM providers via Vercel AI SDK.",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -26,6 +26,7 @@
   },
   "bin": {
     "mcp-factory": "./bin/mcp-factory.js",
+    "mcpgen": "./bin/mcp-factory.js",
     "mcp-tool-factory-server": "./bin/mcp-server.js"
   },
   "files": [
@@ -76,7 +77,8 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.76",
-    "@modelcontextprotocol/sdk": "^1.25.1",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "ai": "^6.0.0",
     "axios": "^1.7.9",
     "chalk": "^5.3.0",
     "commander": "^12.1.0",
@@ -87,9 +89,21 @@
     "zod": "^3.24.1"
   },
   "optionalDependencies": {
+    "@ai-sdk/anthropic": "^3.0.42",
+    "@ai-sdk/azure": "^3.0.28",
+    "@ai-sdk/cohere": "^3.0.20",
+    "@ai-sdk/deepseek": "^2.0.19",
+    "@ai-sdk/google": "^3.0.28",
+    "@ai-sdk/groq": "^3.0.23",
+    "@ai-sdk/mistral": "^3.0.19",
+    "@ai-sdk/openai": "^3.0.27",
+    "@ai-sdk/xai": "^3.0.54",
     "@anthropic-ai/sdk": "^0.32.1",
     "@google/generative-ai": "^0.21.0",
     "better-sqlite3": "^11.7.0",
+    "graphql": "^16.10.0",
+    "jsonld": "^8.3.0",
+    "n3": "^1.22.0",
     "openai": "^4.77.0",
     "pg": "^8.13.1"
   },

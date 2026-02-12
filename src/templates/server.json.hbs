@@ -20,7 +20,9 @@
         {
           "name": "{{this}}",
           "description": "Required for API access",
-          "required": true
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
         }{{#unless @last}},{{/unless}}
 {{/each}}
       ]{{/if}}

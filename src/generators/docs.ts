@@ -27,16 +27,37 @@ export class DocsGenerator {
 
     // Detect common domains
     const domains: [string[], string][] = [
-      [['weather', 'temperature', 'forecast', 'climate'], 'Weather and climate data tools for AI agents'],
-      [['database', 'sql', 'query', 'crud', 'table'], 'Database operations and CRUD tools for AI agents'],
-      [['github', 'repository', 'commit', 'pull request', 'issue'], 'GitHub integration tools for AI agents'],
-      [['iot', 'device', 'sensor', 'thing', 'ditto', 'twin'], 'IoT device management tools for AI agents'],
+      [
+        ['weather', 'temperature', 'forecast', 'climate'],
+        'Weather and climate data tools for AI agents',
+      ],
+      [
+        ['database', 'sql', 'query', 'crud', 'table'],
+        'Database operations and CRUD tools for AI agents',
+      ],
+      [
+        ['github', 'repository', 'commit', 'pull request', 'issue'],
+        'GitHub integration tools for AI agents',
+      ],
+      [
+        ['iot', 'device', 'sensor', 'thing', 'ditto', 'twin'],
+        'IoT device management tools for AI agents',
+      ],
       [['api', 'rest', 'http', 'endpoint'], 'REST API integration tools for AI agents'],
-      [['file', 'document', 'read', 'write', 'storage'], 'File and document management tools for AI agents'],
-      [['email', 'message', 'notification', 'send'], 'Communication and messaging tools for AI agents'],
+      [
+        ['file', 'document', 'read', 'write', 'storage'],
+        'File and document management tools for AI agents',
+      ],
+      [
+        ['email', 'message', 'notification', 'send'],
+        'Communication and messaging tools for AI agents',
+      ],
       [['payment', 'stripe', 'transaction', 'billing'], 'Payment processing tools for AI agents'],
       [['search', 'find', 'query', 'lookup'], 'Search and discovery tools for AI agents'],
-      [['user', 'auth', 'login', 'account'], 'User management and authentication tools for AI agents'],
+      [
+        ['user', 'auth', 'login', 'account'],
+        'User management and authentication tools for AI agents',
+      ],
     ];
 
     for (const [keywords, tagline] of domains) {
@@ -63,7 +84,8 @@ export class DocsGenerator {
       toolsList += `, and ${toolSpecs.length - 5} more`;
     }
 
-    const baseDesc = description ?? `An MCP server providing ${toolCount} tools for various operations.`;
+    const baseDesc =
+      description ?? `An MCP server providing ${toolCount} tools for various operations.`;
 
     return (
       'An MCP (Model Context Protocol) server that enables AI agents to ' +
@@ -77,12 +99,7 @@ export class DocsGenerator {
    * Generate a summary table of all tools.
    */
   private generateToolsSummaryTable(toolSpecs: ToolSpec[]): string[] {
-    const parts = [
-      '## Tools Overview',
-      '',
-      '| Tool | Description |',
-      '|------|-------------|',
-    ];
+    const parts = ['## Tools Overview', '', '| Tool | Description |', '|------|-------------|'];
 
     for (const spec of toolSpecs) {
       let desc = spec.description.split('.')[0]?.trim() ?? '';
@@ -99,10 +116,7 @@ export class DocsGenerator {
   /**
    * Generate a Mermaid architecture diagram.
    */
-  private generateArchitectureDiagram(
-    serverName: string,
-    toolSpecs: ToolSpec[]
-  ): string[] {
+  private generateArchitectureDiagram(serverName: string, toolSpecs: ToolSpec[]): string[] {
     const toolNames = toolSpecs.slice(0, 8).map((s) => s.name);
 
     const parts = [
@@ -282,6 +296,19 @@ export class DocsGenerator {
     parts.push(
       '```',
       '',
+      '### Streamable HTTP Transport',
+      '',
+      'For web integrations, you can use Streamable HTTP transport:',
+      '',
+      '```bash',
+      '# Start with HTTP transport',
+      'MCP_TRANSPORT=http MCP_PORT=8000 npm run dev',
+      '```',
+      '',
+      'Then connect via:',
+      '- **MCP endpoint:** `POST http://localhost:8000/mcp`',
+      '- **Health check:** `GET http://localhost:8000/health`',
+      '',
       '---',
       '',
       '## Tool Reference',
@@ -324,14 +351,81 @@ export class DocsGenerator {
       '```',
       '',
       '---',
-      '',
-      '## License',
-      '',
-      'MIT',
       ''
     );
 
+    // MCP Registry Publishing
+    parts.push(...this.generateRegistryPublishingSection(serverSlug));
+
+    parts.push('---', '', '## License', '', 'MIT', '');
+
     return parts.join('\n');
+  }
+
+  /**
+   * Generate the MCP Registry publishing section for README.
+   */
+  private generateRegistryPublishingSection(_serverSlug: string): string[] {
+    return [
+      '## Publishing to MCP Registry',
+      '',
+      'This server is ready for publishing to the [MCP Registry](https://registry.modelcontextprotocol.io).',
+      '',
+      '### Prerequisites',
+      '',
+      '1. An npm account (for package publishing)',
+      '2. A GitHub account (for registry authentication)',
+      '3. The `mcp-publisher` CLI tool',
+      '',
+      '### Step 1: Publish to npm',
+      '',
+      '```bash',
+      '# Login to npm (if not already logged in)',
+      'npm login',
+      '',
+      '# Publish the package',
+      'npm publish --access public',
+      '```',
+      '',
+      '### Step 2: Install mcp-publisher',
+      '',
+      '```bash',
+      '# macOS',
+      'brew install modelcontextprotocol/tap/mcp-publisher',
+      '',
+      '# Or download from GitHub releases',
+      '# https://github.com/modelcontextprotocol/mcp-publisher/releases',
+      '```',
+      '',
+      '### Step 3: Authenticate with GitHub',
+      '',
+      '```bash',
+      'mcp-publisher login github',
+      '```',
+      '',
+      '### Step 4: Publish to MCP Registry',
+      '',
+      '```bash',
+      'mcp-publisher publish',
+      '```',
+      '',
+      'The publisher will validate your `server.json` and submit your server to the registry.',
+      '',
+      '### Troubleshooting',
+      '',
+      '| Issue | Solution |',
+      '|-------|----------|',
+      '| `server.json` validation fails | Ensure all required fields are present and correctly formatted |',
+      '| npm publish fails | Check that package name is unique and you\'re logged in |',
+      '| Registry submission rejected | Verify your `mcpName` follows the `io.github.<user>/<name>` format |',
+      '| Authentication error | Re-run `mcp-publisher login github` |',
+      '',
+      '### Registry Files',
+      '',
+      `- \`server.json\` - MCP Registry manifest (required)`,
+      `- \`package.json\` - Contains \`mcpName\` field for registry lookup`,
+      '',
+    ];
   }
 
   /**
@@ -394,6 +488,173 @@ export class DocsGenerator {
       '  }',
       '}',
       '```',
+      ''
+    );
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Generate CHANGELOG.md following Keep a Changelog format.
+   */
+  generateChangelog(serverName: string, toolSpecs: ToolSpec[], version: string = '1.0.0'): string {
+    const date = new Date().toISOString().split('T')[0];
+    const toolNames = toolSpecs.map((s) => `\`${s.name}\``).join(', ');
+
+    const parts = [
+      '# Changelog',
+      '',
+      'All notable changes to this project will be documented in this file.',
+      '',
+      'The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),',
+      'and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).',
+      '',
+      `## [${version}] - ${date}`,
+      '',
+      '### Added',
+      '',
+      `- Initial release of ${serverName}`,
+      `- MCP tools: ${toolNames}`,
+      '- MCP Protocol support via stdio transport',
+      '- Streamable HTTP transport support (set `MCP_TRANSPORT=http`)',
+      '- Health check endpoint (`health_check` tool)',
+      '- Docker support with multi-stage build',
+      '- GitHub Actions CI/CD workflow',
+      '- TypeDoc API documentation',
+      '- Comprehensive test suite',
+      '',
+      '### Security',
+      '',
+      '- Input validation using Zod schemas',
+      '- Environment-based authentication configuration',
+      '',
+    ];
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Generate tools.json - machine-readable API specification.
+   */
+  generateToolsSpec(serverName: string, toolSpecs: ToolSpec[]): string {
+    const spec = {
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      title: `${serverName} Tools`,
+      description: `MCP tools provided by ${serverName}`,
+      version: '1.0.0',
+      tools: toolSpecs.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: {
+          type: 'object',
+          properties: tool.inputSchema.properties ?? {},
+          required: tool.inputSchema.required ?? [],
+        },
+        dependencies: tool.dependencies,
+        examples: [
+          {
+            description: `Example usage of ${tool.name}`,
+            input: this.generateExampleInput(tool),
+          },
+        ],
+      })),
+    };
+
+    return JSON.stringify(spec, null, 2);
+  }
+
+  /**
+   * Generate example input for a tool based on its schema.
+   */
+  private generateExampleInput(tool: ToolSpec): Record<string, unknown> {
+    const example: Record<string, unknown> = {};
+    const props = tool.inputSchema.properties ?? {};
+
+    for (const [name, schema] of Object.entries(props)) {
+      switch (schema.type) {
+        case 'string':
+          example[name] = schema.description?.includes('url')
+            ? 'https://example.com'
+            : schema.description?.includes('email')
+              ? 'user@example.com'
+              : `example_${name}`;
+          break;
+        case 'number':
+        case 'integer':
+          example[name] = 42;
+          break;
+        case 'boolean':
+          example[name] = true;
+          break;
+        case 'array':
+          example[name] = [];
+          break;
+        case 'object':
+          example[name] = {};
+          break;
+        default:
+          example[name] = `example_${name}`;
+      }
+    }
+
+    return example;
+  }
+
+  /**
+   * Generate docs/index.md - API documentation entry point.
+   */
+  generateApiDocsIndex(serverName: string, toolSpecs: ToolSpec[]): string {
+    const parts = [
+      `# ${serverName} API Documentation`,
+      '',
+      '## Overview',
+      '',
+      `This documentation covers the ${toolSpecs.length} MCP tools provided by ${serverName}.`,
+      '',
+      '## Resources',
+      '',
+      '- **[TypeDoc API Reference](./api/index.html)** - Auto-generated TypeScript documentation',
+      '- **[tools.json](./tools.json)** - Machine-readable tool specifications (JSON Schema)',
+      '- **[README](../README.md)** - Getting started guide',
+      '',
+      '## Tools Summary',
+      '',
+      '| Tool | Description |',
+      '|------|-------------|',
+    ];
+
+    for (const tool of toolSpecs) {
+      const shortDesc = tool.description.split('.')[0] || tool.description;
+      parts.push(`| \`${tool.name}\` | ${shortDesc} |`);
+    }
+
+    parts.push('', '## Tool Details', '');
+
+    for (const tool of toolSpecs) {
+      parts.push(
+        `### ${tool.name}`,
+        '',
+        tool.description,
+        '',
+        '**Input Schema:**',
+        '',
+        '```json',
+        JSON.stringify(tool.inputSchema, null, 2),
+        '```',
+        ''
+      );
+    }
+
+    parts.push(
+      '## Generating Documentation',
+      '',
+      'To regenerate the TypeDoc API documentation:',
+      '',
+      '```bash',
+      'npm run docs',
+      '```',
+      '',
+      'This will update the `docs/api/` directory with the latest TypeScript documentation.',
       ''
     );
 

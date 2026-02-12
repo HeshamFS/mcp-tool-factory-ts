@@ -11,7 +11,17 @@ import {
   validateGeneratedServer,
   LLMProvider,
   getDefaultConfig,
-} from 'mcp-tool-factory';
+  LLMCache,
+  GraphQLServerGenerator,
+  OntologyParser,
+  OntologyServerGenerator,
+  // Cost tracking (v0.3.0)
+  MODEL_PRICING,
+  calculateCost,
+  formatCost,
+  estimateCost,
+  BudgetExceededError,
+} from '@heshamfsalama/mcp-tool-factory';
 ```
 
 ---
@@ -91,10 +101,25 @@ async generateFromDescription(
 ```typescript
 interface GenerateOptions {
   serverName?: string;
+  description?: string;
+  githubUsername?: string;
+  version?: string;
   webSearch?: boolean;
   authEnvVars?: string[];
   includeHealthCheck?: boolean;
   productionConfig?: ProductionConfig;
+  /** Enable parallel generation of tool implementations (default: true) */
+  parallel?: boolean;
+  /** Maximum concurrent LLM calls when parallel is enabled (default: 5) */
+  maxConcurrency?: number;
+  /** Skip the LLM response cache (default: false) */
+  skipCache?: boolean;
+  /** Enable streaming output from LLM calls */
+  stream?: boolean;
+  /** Callback for streaming tokens */
+  onStreamToken?: (token: string) => void;
+  /** Maximum spend in USD — aborts with BudgetExceededError if exceeded */
+  budget?: number;
 }
 ```
 
@@ -129,6 +154,9 @@ async generateFromOpenAPI(
   options?: {
     baseUrl?: string;
     serverName?: string;
+    description?: string;
+    githubUsername?: string;
+    version?: string;
   }
 ): Promise<GeneratedServer>
 ```
@@ -156,6 +184,9 @@ async generateFromDatabase(
   databasePath: string,
   options?: {
     serverName?: string;
+    description?: string;
+    githubUsername?: string;
+    version?: string;
     tables?: string[];
   }
 ): Promise<GeneratedServer>
@@ -177,6 +208,73 @@ const server = await agent.generateFromDatabase(
 );
 ```
 
+#### generateFromGraphQL
+
+Generate server from a GraphQL SDL schema.
+
+```typescript
+async generateFromGraphQL(
+  schemaString: string,
+  options?: {
+    endpoint?: string;
+    serverName?: string;
+    description?: string;
+    githubUsername?: string;
+    version?: string;
+  }
+): Promise<GeneratedServer>
+```
+
+##### Example
+
+```typescript
+import { readFileSync } from 'fs';
+
+const schema = readFileSync('./schema.graphql', 'utf-8');
+
+const server = await agent.generateFromGraphQL(schema, {
+  serverName: 'my-graphql-server',
+  endpoint: 'https://api.example.com/graphql',
+});
+```
+
+#### generateFromOntology
+
+Generate server from an ontology definition (RDF/OWL, JSON-LD, or custom YAML).
+
+```typescript
+async generateFromOntology(
+  content: string,
+  options?: {
+    format?: 'rdf' | 'jsonld' | 'yaml';
+    serverName?: string;
+    description?: string;
+    githubUsername?: string;
+    version?: string;
+  }
+): Promise<GeneratedServer>
+```
+
+##### Example
+
+```typescript
+import { readFileSync } from 'fs';
+
+// RDF/OWL Turtle
+const ontology = readFileSync('./domain.ttl', 'utf-8');
+const server = await agent.generateFromOntology(ontology, {
+  format: 'rdf',
+  serverName: 'domain-server',
+});
+
+// YAML ontology
+const yamlOntology = readFileSync('./domain.yaml', 'utf-8');
+const server2 = await agent.generateFromOntology(yamlOntology, {
+  format: 'yaml',
+  serverName: 'yaml-domain-server',
+});
+```
+
 ---
 
 ## GeneratedServer
@@ -190,6 +288,8 @@ Output from the tool factory.
 | `name` | `string` | Server name |
 | `serverCode` | `string` | Main server TypeScript code |
 | `toolSpecs` | `ToolSpec[]` | List of tool specifications |
+| `resourceSpecs` | `ResourceSpec[]` | List of resource specifications |
+| `promptSpecs` | `PromptSpec[]` | List of prompt specifications |
 | `testCode` | `string` | Test file content |
 | `dockerfile` | `string` | Dockerfile content |
 | `readme` | `string` | README content |
@@ -198,6 +298,9 @@ Output from the tool factory.
 | `tsconfigJson` | `string` | tsconfig.json content |
 | `githubActions` | `string` | GitHub Actions workflow |
 | `serverJson` | `string` | MCP Registry manifest |
+| `changelog` | `string` | CHANGELOG.md content |
+| `toolsSpec` | `string` | Machine-readable API spec (docs/tools.json) |
+| `apiDocsIndex` | `string` | API documentation entry point (docs/index.md) |
 | `executionLog` | `GenerationLog \| null` | Generation trace |
 
 ### Example
@@ -207,6 +310,8 @@ const server = await agent.generateFromDescription('...');
 
 console.log(server.name);           // 'GeneratedToolServer'
 console.log(server.toolSpecs);      // [{ name: 'tool1', ... }]
+console.log(server.resourceSpecs);  // [{ uri: 'resource://...', ... }]
+console.log(server.promptSpecs);    // [{ name: 'prompt1', ... }]
 console.log(server.serverCode);     // TypeScript code
 ```
 
@@ -226,7 +331,7 @@ async function writeServerToDirectory(
 ### Example
 
 ```typescript
-import { writeServerToDirectory } from 'mcp-tool-factory';
+import { writeServerToDirectory } from '@heshamfsalama/mcp-tool-factory';
 
 await writeServerToDirectory(server, './servers/my-server');
 ```
@@ -270,15 +375,15 @@ Configuration for the factory agent.
 ### Example
 
 ```typescript
-import { getDefaultConfig, LLMProvider } from 'mcp-tool-factory';
+import { getDefaultConfig, LLMProvider } from '@heshamfsalama/mcp-tool-factory';
 
 const config = getDefaultConfig();
-// { provider: LLMProvider.ANTHROPIC, model: 'claude-sonnet-4-20250514', ... }
+// { provider: LLMProvider.ANTHROPIC, model: 'claude-sonnet-4-5-20250929', ... }
 
 const customConfig = {
   ...config,
   provider: LLMProvider.OPENAI,
-  model: 'gpt-4o',
+  model: 'gpt-5.2',
 };
 ```
 
@@ -293,6 +398,12 @@ enum LLMProvider {
   ANTHROPIC = 'anthropic',
   OPENAI = 'openai',
   GOOGLE = 'google',
+  MISTRAL = 'mistral',
+  DEEPSEEK = 'deepseek',
+  GROQ = 'groq',
+  XAI = 'xai',
+  AZURE = 'azure',
+  COHERE = 'cohere',
   CLAUDE_CODE = 'claude_code',
 }
 ```
@@ -300,11 +411,11 @@ enum LLMProvider {
 ### Example
 
 ```typescript
-import { LLMProvider } from 'mcp-tool-factory';
+import { LLMProvider } from '@heshamfsalama/mcp-tool-factory';
 
 const config = {
   provider: LLMProvider.ANTHROPIC,
-  model: 'claude-opus-4-20250514',
+  model: 'claude-opus-4-6',
 };
 ```
 
@@ -415,7 +526,7 @@ async function validateGeneratedServer(serverCode: string): Promise<{
 ### Example
 
 ```typescript
-import { validateTypeScriptCode, validateGeneratedServer } from 'mcp-tool-factory';
+import { validateTypeScriptCode, validateGeneratedServer } from '@heshamfsalama/mcp-tool-factory';
 
 // Validate code snippet
 const result = await validateTypeScriptCode(`
@@ -438,7 +549,7 @@ console.log(serverResult.summary);
 ### DatabaseServerGenerator
 
 ```typescript
-import { DatabaseServerGenerator, DatabaseType } from 'mcp-tool-factory';
+import { DatabaseServerGenerator, DatabaseType } from '@heshamfsalama/mcp-tool-factory';
 
 const generator = new DatabaseServerGenerator('./data.db');
 await generator.introspect(['users', 'posts']);
@@ -463,12 +574,285 @@ enum DatabaseType {
 ### OpenAPIServerGenerator
 
 ```typescript
-import { OpenAPIServerGenerator } from 'mcp-tool-factory';
+import { OpenAPIServerGenerator } from '@heshamfsalama/mcp-tool-factory';
 
 const generator = new OpenAPIServerGenerator(openapiSpec, 'https://api.example.com');
 const serverCode = generator.generateServerCode('MyAPIServer');
 const toolSpecs = generator.getToolSpecs();
 const authEnvVars = generator.getAuthEnvVars();
+```
+
+---
+
+## ResourceSpec
+
+Resource specification for MCP resources exposed by a generated server.
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `uri` | `string` | Resource URI (e.g., `resource://users/{id}`) |
+| `name` | `string` | Human-readable name |
+| `description` | `string` | Resource description |
+| `mimeType` | `string` | MIME type of the resource |
+| `template` | `boolean` | Whether the URI is a template with parameters |
+
+### Example
+
+```typescript
+import { type ResourceSpec } from '@heshamfsalama/mcp-tool-factory';
+
+const resource: ResourceSpec = {
+  uri: 'resource://users/{id}',
+  name: 'User Profile',
+  description: 'Get user profile by ID',
+  mimeType: 'application/json',
+  template: true,
+};
+```
+
+---
+
+## PromptSpec
+
+Prompt specification for MCP prompts exposed by a generated server.
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `name` | `string` | Prompt name |
+| `description` | `string` | Prompt description |
+| `arguments` | `PromptArgument[]` | Prompt arguments |
+| `template` | `string` | Prompt template string |
+
+### PromptArgument
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `name` | `string` | Argument name |
+| `description` | `string` | Argument description |
+| `required` | `boolean` | Whether the argument is required |
+
+### Example
+
+```typescript
+import { type PromptSpec } from '@heshamfsalama/mcp-tool-factory';
+
+const prompt: PromptSpec = {
+  name: 'summarize_data',
+  description: 'Summarize data from a given table',
+  arguments: [
+    { name: 'table', description: 'Table name', required: true },
+    { name: 'format', description: 'Output format', required: false },
+  ],
+  template: 'Summarize all data from the {{table}} table in {{format}} format.',
+};
+```
+
+---
+
+## GraphQL Module
+
+### GraphQLServerGenerator
+
+Generate an MCP server from a GraphQL SDL schema. Maps queries to read-only tools and mutations to write tools.
+
+```typescript
+import { GraphQLServerGenerator } from '@heshamfsalama/mcp-tool-factory';
+
+const generator = new GraphQLServerGenerator(schemaString, 'https://api.example.com/graphql');
+const serverCode = generator.generateServerCode('MyGraphQLServer');
+const toolSpecs = generator.getToolSpecs();
+const authEnvVars = generator.getAuthEnvVars();
+```
+
+---
+
+## Ontology Module
+
+### OntologyParser
+
+Parse ontology files in RDF/OWL (Turtle), JSON-LD, or custom YAML format.
+
+```typescript
+import { OntologyParser, type OntologyDefinition } from '@heshamfsalama/mcp-tool-factory';
+
+const parser = new OntologyParser();
+const definition: OntologyDefinition = await parser.parse(content, 'rdf');
+```
+
+### OntologyServerGenerator
+
+Generate an MCP server from a parsed ontology definition. Creates CRUD tools for each class and relationship tools for object properties.
+
+```typescript
+import { OntologyServerGenerator } from '@heshamfsalama/mcp-tool-factory';
+
+const generator = new OntologyServerGenerator(definition);
+const serverCode = generator.generateServerCode('MyOntologyServer');
+const toolSpecs = generator.getToolSpecs();
+```
+
+### OntologyDefinition
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `name` | `string` | Ontology name |
+| `description` | `string` | Human-readable description |
+| `classes` | `OntologyClass[]` | Classes defined in the ontology |
+| `properties` | `OntologyProperty[]` | All properties (data and object) |
+| `individuals` | `OntologyIndividual[]` | Pre-defined individuals for seeding data |
+
+### OntologyClass
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `uri` | `string` | Full URI of the class |
+| `label` | `string` | Human-readable label |
+| `description` | `string` | Class description |
+| `superClass` | `string \| undefined` | Parent class URI |
+| `dataProperties` | `OntologyProperty[]` | Literal-valued properties |
+| `objectProperties` | `OntologyProperty[]` | Relationship properties |
+
+### OntologyProperty
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `uri` | `string` | Full URI of the property |
+| `label` | `string` | Human-readable label |
+| `description` | `string` | Property description |
+| `domain` | `string \| undefined` | Class this property belongs to |
+| `range` | `string` | Value type or class URI |
+| `type` | `'data' \| 'object'` | Data property or object relationship |
+
+---
+
+## Cache Module
+
+### LLMCache
+
+In-memory cache for LLM responses with TTL-based expiration and LRU eviction.
+
+```typescript
+import { LLMCache, type CacheConfig } from '@heshamfsalama/mcp-tool-factory';
+
+const cache = new LLMCache({ ttlMs: 3600000, maxEntries: 500 });
+
+// Check cache
+const cached = cache.get({ systemPrompt, userPrompt, maxTokens: 4096 });
+if (cached) {
+  return cached.text;
+}
+
+// Store in cache
+cache.set(
+  { systemPrompt, userPrompt, maxTokens: 4096 },
+  response.text,
+  { tokensIn: response.tokensIn, tokensOut: response.tokensOut }
+);
+
+// Get statistics
+const stats = cache.getStats();
+console.log(`Hit rate: ${stats.hitRate}%, Size: ${stats.size}`);
+
+// Clear cache
+cache.clear();
+```
+
+### CacheConfig
+
+| Property | Type | Description | Default |
+|----------|------|-------------|---------|
+| `enabled` | `boolean` | Enable/disable caching | `true` |
+| `ttlMs` | `number` | Time-to-live in milliseconds | `3600000` (1 hour) |
+| `maxEntries` | `number` | Maximum cache entries | `1000` |
+| `includeModelInKey` | `boolean` | Include model in cache key | `true` |
+| `includeTemperatureInKey` | `boolean` | Include temperature in cache key | `true` |
+
+### Global Cache
+
+```typescript
+import { getGlobalCache, resetGlobalCache } from '@heshamfsalama/mcp-tool-factory';
+
+// Get or create shared cache instance
+const cache = getGlobalCache({ ttlMs: 1800000 });
+
+// Reset the global cache
+resetGlobalCache();
+```
+
+---
+
+## Cost Tracking
+
+### MODEL_PRICING
+
+Static pricing table for 50+ models across all supported providers.
+
+```typescript
+import { MODEL_PRICING, type ModelPricing } from '@heshamfsalama/mcp-tool-factory';
+
+const pricing: ModelPricing = MODEL_PRICING['claude-sonnet-4-5-20250929'];
+// { inputPer1M: 3, outputPer1M: 15, cacheReadPer1M: 0.30, cacheWritePer1M: 3.75 }
+```
+
+### calculateCost
+
+Calculate the estimated cost for an LLM call.
+
+```typescript
+import { calculateCost, type CostBreakdown } from '@heshamfsalama/mcp-tool-factory';
+
+const cost: CostBreakdown | null = calculateCost(
+  'claude-sonnet-4-5-20250929',
+  10000,  // input tokens
+  5000,   // output tokens
+  { cacheReadTokens: 2000 }  // optional token details
+);
+// { total: 0.0993, input: 0.024, output: 0.075, cacheRead: 0.0006 }
+```
+
+### formatCost
+
+Format a cost value as a human-readable string.
+
+```typescript
+import { formatCost } from '@heshamfsalama/mcp-tool-factory';
+
+formatCost(0.1234);  // "$0.1234"
+formatCost(0.005);   // "<$0.01"
+formatCost(0);       // "$0.00"
+```
+
+### estimateCost
+
+Estimate cost for a generation before making API calls.
+
+```typescript
+import { estimateCost } from '@heshamfsalama/mcp-tool-factory';
+
+const cost = estimateCost('gpt-5.2', 15000, 10000);
+// 0.11 (USD)
+```
+
+### BudgetExceededError
+
+Thrown when cumulative cost exceeds the `budget` option.
+
+```typescript
+import { ToolFactoryAgent, BudgetExceededError } from '@heshamfsalama/mcp-tool-factory';
+
+try {
+  const server = await agent.generateFromDescription('...', {
+    budget: 0.50,  // Max $0.50
+  });
+} catch (error) {
+  if (error instanceof BudgetExceededError) {
+    console.log(`Budget exceeded: ${error.message}`);
+  }
+}
 ```
 
 ---
@@ -480,15 +864,16 @@ import {
   ToolFactoryAgent,
   writeServerToDirectory,
   validateGeneratedServer,
+  formatCost,
   LLMProvider,
-} from 'mcp-tool-factory';
+} from '@heshamfsalama/mcp-tool-factory';
 
 async function main() {
   // Create agent with explicit configuration
   const agent = new ToolFactoryAgent({
     config: {
       provider: LLMProvider.ANTHROPIC,
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5-20250929',
     },
   });
 
@@ -498,6 +883,7 @@ async function main() {
     {
       serverName: 'finance-tracker',
       webSearch: true,
+      budget: 2.00,  // Abort if cost exceeds $2.00
       authEnvVars: ['FINANCE_API_KEY'],
       productionConfig: {
         enableLogging: true,
@@ -522,6 +908,11 @@ async function main() {
   server.toolSpecs.forEach(tool => {
     console.log(`  - ${tool.name}: ${tool.description}`);
   });
+
+  // Show cost
+  if (server.executionLog) {
+    console.log(`Total cost: ${formatCost(server.executionLog.totalCost)}`);
+  }
 }
 
 main().catch(console.error);

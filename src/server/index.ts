@@ -10,12 +10,24 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { ToolFactoryAgent } from '../agent/index.js';
-import { LLMProvider } from '../config/providers.js';
+import {
+  LLMProvider,
+  DEFAULT_MODELS,
+  API_KEY_ENV_VARS,
+  CLAUDE_MODELS,
+  OPENAI_MODELS,
+  GOOGLE_MODELS,
+  MISTRAL_MODELS,
+  DEEPSEEK_MODELS,
+  GROQ_MODELS,
+  XAI_MODELS,
+  COHERE_MODELS,
+} from '../config/providers.js';
 import { validateTypeScriptCode } from '../validation/parser.js';
 
 // Server metadata
 const SERVER_NAME = 'mcp-tool-factory';
-const SERVER_VERSION = '0.1.0';
+const SERVER_VERSION = '0.3.0';
 
 /**
  * Create and configure the MCP server.
@@ -47,7 +59,9 @@ function createServer(): McpServer {
       authEnvVars: z
         .array(z.string())
         .optional()
-        .describe('Environment variables required for authentication (e.g., ["API_KEY", "SECRET"])'),
+        .describe(
+          'Environment variables required for authentication (e.g., ["API_KEY", "SECRET"])'
+        ),
       includeHealthCheck: z
         .boolean()
         .optional()
@@ -56,14 +70,8 @@ function createServer(): McpServer {
         .boolean()
         .optional()
         .describe('Enable structured logging with pino (default: false)'),
-      enableMetrics: z
-        .boolean()
-        .optional()
-        .describe('Enable Prometheus metrics (default: false)'),
-      enableRateLimiting: z
-        .boolean()
-        .optional()
-        .describe('Enable rate limiting (default: false)'),
+      enableMetrics: z.boolean().optional().describe('Enable Prometheus metrics (default: false)'),
+      enableRateLimiting: z.boolean().optional().describe('Enable rate limiting (default: false)'),
       rateLimitRequests: z
         .number()
         .optional()
@@ -76,14 +84,33 @@ function createServer(): McpServer {
         .string()
         .optional()
         .describe('GitHub username for MCP Registry publishing (creates io.github.<user>/<name>)'),
-      version: z
-        .string()
+      version: z.string().optional().describe('Version for the generated server (default: 1.0.0)'),
+      parallel: z
+        .boolean()
         .optional()
-        .describe('Version for the generated server (default: 1.0.0)'),
+        .describe('Generate tool implementations in parallel (default: true)'),
+      maxConcurrency: z
+        .number()
+        .optional()
+        .describe('Maximum concurrent LLM calls when parallel (default: 5)'),
+      skipCache: z.boolean().optional().describe('Skip the LLM response cache (default: false)'),
     },
     async (params) => {
       try {
-        const agent = new ToolFactoryAgent();
+        const envProvider = process.env.MCP_FACTORY_PROVIDER;
+        const envModel = process.env.MCP_FACTORY_MODEL;
+        const envBudget = process.env.MCP_FACTORY_BUDGET;
+
+        const agent = new ToolFactoryAgent({
+          ...(envProvider || envModel
+            ? {
+                config: {
+                  ...(envProvider ? { provider: envProvider as LLMProvider } : {}),
+                  ...(envModel ? { model: envModel } : {}),
+                },
+              }
+            : {}),
+        });
 
         const result = await agent.generateFromDescription(params.description, {
           serverName: params.serverName,
@@ -92,6 +119,10 @@ function createServer(): McpServer {
           includeHealthCheck: params.includeHealthCheck,
           githubUsername: params.githubUsername,
           version: params.version,
+          parallel: params.parallel,
+          maxConcurrency: params.maxConcurrency,
+          skipCache: params.skipCache,
+          budget: envBudget ? parseFloat(envBudget) : undefined,
           productionConfig: {
             enableLogging: params.enableLogging,
             enableMetrics: params.enableMetrics,
@@ -118,7 +149,7 @@ function createServer(): McpServer {
                     'package.json': result.packageJson,
                     'tsconfig.json': result.tsconfigJson,
                     'README.md': result.readme,
-                    'Dockerfile': result.dockerfile,
+                    Dockerfile: result.dockerfile,
                     'server.json': result.serverJson,
                     'tests/tools.test.ts': result.testCode,
                     '.github/workflows/ci.yml': result.githubActions,
@@ -157,25 +188,14 @@ function createServer(): McpServer {
     'generate_from_openapi',
     'Generate an MCP server from an OpenAPI specification. Converts REST API endpoints to MCP tools.',
     {
-      openapiSpec: z
-        .string()
-        .describe('OpenAPI specification as JSON or YAML string'),
-      serverName: z
-        .string()
-        .optional()
-        .describe('Name for the generated server'),
+      openapiSpec: z.string().describe('OpenAPI specification as JSON or YAML string'),
+      serverName: z.string().optional().describe('Name for the generated server'),
       baseUrl: z
         .string()
         .optional()
         .describe('Base URL for the API (auto-detected from spec if not provided)'),
-      githubUsername: z
-        .string()
-        .optional()
-        .describe('GitHub username for MCP Registry publishing'),
-      version: z
-        .string()
-        .optional()
-        .describe('Version for the generated server (default: 1.0.0)'),
+      githubUsername: z.string().optional().describe('GitHub username for MCP Registry publishing'),
+      version: z.string().optional().describe('Version for the generated server (default: 1.0.0)'),
     },
     async (params) => {
       try {
@@ -215,7 +235,7 @@ function createServer(): McpServer {
                     'package.json': result.packageJson,
                     'tsconfig.json': result.tsconfigJson,
                     'README.md': result.readme,
-                    'Dockerfile': result.dockerfile,
+                    Dockerfile: result.dockerfile,
                     'server.json': result.serverJson,
                     'tests/tools.test.ts': result.testCode,
                     '.github/workflows/ci.yml': result.githubActions,
@@ -258,22 +278,13 @@ function createServer(): McpServer {
         .describe(
           'Database connection string. For SQLite: path to .db file. For PostgreSQL: postgresql://user:pass@host/db'
         ),
-      serverName: z
-        .string()
-        .optional()
-        .describe('Name for the generated server'),
+      serverName: z.string().optional().describe('Name for the generated server'),
       tables: z
         .array(z.string())
         .optional()
         .describe('Specific tables to include (default: all tables)'),
-      githubUsername: z
-        .string()
-        .optional()
-        .describe('GitHub username for MCP Registry publishing'),
-      version: z
-        .string()
-        .optional()
-        .describe('Version for the generated server (default: 1.0.0)'),
+      githubUsername: z.string().optional().describe('GitHub username for MCP Registry publishing'),
+      version: z.string().optional().describe('Version for the generated server (default: 1.0.0)'),
     },
     async (params) => {
       try {
@@ -303,7 +314,157 @@ function createServer(): McpServer {
                     'package.json': result.packageJson,
                     'tsconfig.json': result.tsconfigJson,
                     'README.md': result.readme,
-                    'Dockerfile': result.dockerfile,
+                    Dockerfile: result.dockerfile,
+                    'server.json': result.serverJson,
+                    'tests/tools.test.ts': result.testCode,
+                    '.github/workflows/ci.yml': result.githubActions,
+                  },
+                  instructions:
+                    'Write these files to a directory, then run: npm install && npx tsx src/index.ts',
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ============================================================
+  // Tool: generate_from_graphql
+  // ============================================================
+  server.tool(
+    'generate_from_graphql',
+    'Generate an MCP server from a GraphQL SDL schema. Converts queries and mutations to MCP tools.',
+    {
+      graphqlSchema: z.string().describe('GraphQL SDL schema string'),
+      endpoint: z
+        .string()
+        .optional()
+        .describe('GraphQL endpoint URL (default: http://localhost:4000/graphql)'),
+      serverName: z.string().optional().describe('Name for the generated server'),
+      githubUsername: z.string().optional().describe('GitHub username for MCP Registry publishing'),
+      version: z.string().optional().describe('Version for the generated server (default: 1.0.0)'),
+    },
+    async (params) => {
+      try {
+        const agent = new ToolFactoryAgent({ requireLlm: false });
+
+        const result = await agent.generateFromGraphQL(params.graphqlSchema, {
+          serverName: params.serverName,
+          endpoint: params.endpoint,
+          githubUsername: params.githubUsername,
+          version: params.version,
+        });
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  serverName: result.name,
+                  toolsGenerated: result.toolSpecs.map((t) => ({
+                    name: t.name,
+                    description: t.description,
+                  })),
+                  files: {
+                    'src/index.ts': result.serverCode,
+                    'package.json': result.packageJson,
+                    'tsconfig.json': result.tsconfigJson,
+                    'README.md': result.readme,
+                    Dockerfile: result.dockerfile,
+                    'server.json': result.serverJson,
+                    'tests/tools.test.ts': result.testCode,
+                    '.github/workflows/ci.yml': result.githubActions,
+                  },
+                  instructions:
+                    'Write these files to a directory, then run: npm install && npx tsx src/index.ts',
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ============================================================
+  // Tool: generate_from_ontology
+  // ============================================================
+  server.tool(
+    'generate_from_ontology',
+    'Generate an MCP server from an ontology definition (RDF/OWL, JSON-LD, or custom YAML). Creates CRUD tools for each class and relationship tools for object properties.',
+    {
+      ontologyContent: z.string().describe('The ontology content (RDF/Turtle, JSON-LD, or YAML)'),
+      format: z
+        .enum(['rdf', 'jsonld', 'yaml'])
+        .optional()
+        .describe('Ontology format (auto-detected if not specified, default: yaml)'),
+      serverName: z.string().optional().describe('Name for the generated server'),
+      githubUsername: z.string().optional().describe('GitHub username for MCP Registry publishing'),
+      version: z.string().optional().describe('Version for the generated server (default: 1.0.0)'),
+    },
+    async (params) => {
+      try {
+        const agent = new ToolFactoryAgent({ requireLlm: false });
+
+        const result = await agent.generateFromOntology(params.ontologyContent, {
+          format: params.format,
+          serverName: params.serverName,
+          githubUsername: params.githubUsername,
+          version: params.version,
+        });
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  serverName: result.name,
+                  toolsGenerated: result.toolSpecs.map((t) => ({
+                    name: t.name,
+                    description: t.description,
+                  })),
+                  files: {
+                    'src/index.ts': result.serverCode,
+                    'package.json': result.packageJson,
+                    'tsconfig.json': result.tsconfigJson,
+                    'README.md': result.readme,
+                    Dockerfile: result.dockerfile,
                     'server.json': result.serverJson,
                     'tests/tools.test.ts': result.testCode,
                     '.github/workflows/ci.yml': result.githubActions,
@@ -385,49 +546,59 @@ function createServer(): McpServer {
   // ============================================================
   server.tool(
     'list_providers',
-    'List available LLM providers and their configuration requirements.',
+    'List all 10 supported LLM providers, their models, and configuration status.',
     {},
     async () => {
-      const providers = [
-        {
-          id: LLMProvider.ANTHROPIC,
-          name: 'Anthropic Claude',
-          envVar: 'ANTHROPIC_API_KEY',
-          models: ['claude-sonnet-4-5-20250929', 'claude-opus-4-5-20251101', 'claude-haiku-4-5-20251001'],
-          defaultModel: 'claude-sonnet-4-5-20250929',
-          description: 'Best quality for complex tool generation',
-        },
-        {
-          id: LLMProvider.CLAUDE_CODE,
-          name: 'Claude Code',
-          envVar: 'CLAUDE_CODE_OAUTH_TOKEN',
-          models: ['claude-sonnet-4-5-20250929', 'claude-opus-4-5-20251101', 'claude-haiku-4-5-20251001'],
-          defaultModel: 'claude-sonnet-4-5-20250929',
-          description: 'Use Claude Code OAuth token (for Claude Code users)',
-        },
-        {
-          id: LLMProvider.OPENAI,
-          name: 'OpenAI GPT',
-          envVar: 'OPENAI_API_KEY',
-          models: ['gpt-5.2', 'gpt-5.2-codex', 'gpt-5.1', 'gpt-5', 'gpt-5-mini'],
-          defaultModel: 'gpt-5.2',
-          description: 'Fast generation with good quality',
-        },
-        {
-          id: LLMProvider.GOOGLE,
-          name: 'Google Gemini',
-          envVar: 'GOOGLE_API_KEY',
-          models: ['gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.5-flash', 'gemini-2.5-pro'],
-          defaultModel: 'gemini-3-flash-preview',
-          description: 'Cost-effective with large context window',
-        },
-      ];
+      const MODEL_LISTS: Record<string, Record<string, string>> = {
+        [LLMProvider.ANTHROPIC]: CLAUDE_MODELS,
+        [LLMProvider.CLAUDE_CODE]: CLAUDE_MODELS,
+        [LLMProvider.OPENAI]: OPENAI_MODELS,
+        [LLMProvider.GOOGLE]: GOOGLE_MODELS,
+        [LLMProvider.MISTRAL]: MISTRAL_MODELS,
+        [LLMProvider.DEEPSEEK]: DEEPSEEK_MODELS,
+        [LLMProvider.GROQ]: GROQ_MODELS,
+        [LLMProvider.XAI]: XAI_MODELS,
+        [LLMProvider.COHERE]: COHERE_MODELS,
+      };
 
-      // Check which providers are configured
-      const configured = providers.map((p) => ({
-        ...p,
-        isConfigured: !!process.env[p.envVar],
+      const PROVIDER_NAMES: Record<string, string> = {
+        [LLMProvider.ANTHROPIC]: 'Anthropic Claude',
+        [LLMProvider.CLAUDE_CODE]: 'Claude Code (OAuth)',
+        [LLMProvider.OPENAI]: 'OpenAI',
+        [LLMProvider.GOOGLE]: 'Google Gemini',
+        [LLMProvider.MISTRAL]: 'Mistral AI',
+        [LLMProvider.DEEPSEEK]: 'DeepSeek',
+        [LLMProvider.GROQ]: 'Groq',
+        [LLMProvider.XAI]: 'xAI Grok',
+        [LLMProvider.AZURE]: 'Azure OpenAI',
+        [LLMProvider.COHERE]: 'Cohere',
+      };
+
+      const PROVIDER_DESCRIPTIONS: Record<string, string> = {
+        [LLMProvider.ANTHROPIC]: 'Highest quality for complex tool generation',
+        [LLMProvider.CLAUDE_CODE]: 'Zero-config for Claude Code users (auto-injected token)',
+        [LLMProvider.OPENAI]: 'Fast generation with GPT-5 series and o-series reasoning',
+        [LLMProvider.GOOGLE]: 'Cost-effective with 1M token context window',
+        [LLMProvider.MISTRAL]: 'European AI with strong code generation (Codestral)',
+        [LLMProvider.DEEPSEEK]: 'Ultra low cost with 671B MoE architecture',
+        [LLMProvider.GROQ]: 'Ultra-fast inference on open-source models',
+        [LLMProvider.XAI]: 'Grok reasoning models with code specialization',
+        [LLMProvider.AZURE]: 'Enterprise-grade with Azure compliance and SLAs',
+        [LLMProvider.COHERE]: 'Enterprise search and RAG-optimized models',
+      };
+
+      const providers = Object.values(LLMProvider).map((id) => ({
+        id,
+        name: PROVIDER_NAMES[id] ?? id,
+        envVar: API_KEY_ENV_VARS[id],
+        isConfigured: !!process.env[API_KEY_ENV_VARS[id]],
+        defaultModel: DEFAULT_MODELS[id],
+        models: Object.keys(MODEL_LISTS[id] ?? {}),
+        description: PROVIDER_DESCRIPTIONS[id] ?? '',
       }));
+
+      const activeProvider = process.env.MCP_FACTORY_PROVIDER ?? null;
+      const activeModel = process.env.MCP_FACTORY_MODEL ?? null;
 
       return {
         content: [
@@ -435,8 +606,12 @@ function createServer(): McpServer {
             type: 'text',
             text: JSON.stringify(
               {
-                providers: configured,
-                note: 'At least one provider API key is required. Set the environment variable for your preferred provider. The factory will auto-detect which provider to use.',
+                providers,
+                activeOverrides: {
+                  provider: activeProvider,
+                  model: activeModel,
+                },
+                note: 'Set one provider API key in env. Use MCP_FACTORY_PROVIDER and MCP_FACTORY_MODEL to override auto-detection. Claude Code users need no configuration.',
               },
               null,
               2
@@ -464,13 +639,17 @@ function createServer(): McpServer {
                 name: 'MCP Tool Factory',
                 version: SERVER_VERSION,
                 description:
-                  'Generate production-ready MCP servers from natural language, OpenAPI specs, or database schemas.',
+                  'Generate production-ready MCP servers from natural language, OpenAPI specs, database schemas, GraphQL schemas, or ontologies.',
                 capabilities: [
                   'Generate MCP servers from natural language descriptions',
                   'Convert OpenAPI specifications to MCP servers',
                   'Generate CRUD tools from SQLite or PostgreSQL databases',
+                  'Convert GraphQL schemas to MCP servers',
+                  'Generate servers from ontologies (RDF/OWL, JSON-LD, YAML)',
                   'Validate TypeScript code',
-                  'Support for multiple LLM providers (Claude, Claude Code, OpenAI GPT, Google Gemini)',
+                  '10 LLM providers via Vercel AI SDK: Anthropic, OpenAI, Google, Mistral, DeepSeek, Groq, xAI, Azure, Cohere, Claude Code',
+                  'Cost tracking with per-call pricing, budget limits, and provider cost comparison',
+                  'Configurable via MCP_FACTORY_PROVIDER, MCP_FACTORY_MODEL, MCP_FACTORY_BUDGET env vars',
                   'Production features: logging, metrics, rate limiting, retries',
                   'MCP Registry publishing support',
                 ],
@@ -486,6 +665,14 @@ function createServer(): McpServer {
                   {
                     name: 'generate_from_database',
                     description: 'Generate from database schema',
+                  },
+                  {
+                    name: 'generate_from_graphql',
+                    description: 'Generate from GraphQL schema',
+                  },
+                  {
+                    name: 'generate_from_ontology',
+                    description: 'Generate from ontology (RDF/OWL, JSON-LD, YAML)',
                   },
                   {
                     name: 'validate_typescript',

@@ -26,7 +26,7 @@ export interface GeneratedTestCase {
 }
 
 /**
- * Generates Jest test code from tool specifications.
+ * Generates Vitest test code from tool specifications.
  */
 export class TestsGenerator {
   private config: TestGeneratorConfig;
@@ -47,36 +47,56 @@ export class TestsGenerator {
     const parts: string[] = [
       '/**',
       ` * Auto-generated tests for ${serverName} MCP server`,
+      ' * Uses InMemoryTransport for fast, reliable testing.',
       ' */',
       '',
-      "import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';",
-      '',
-      '// Mock tool call helper',
-      'async function callTool(name: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {',
-      '  // In real tests, this would connect to the MCP server',
-      '  // For now, return a mock response',
-      '  return { result: `Called ${name}`, params };',
-      '}',
+      "import { describe, it, expect, beforeAll, afterAll } from 'vitest';",
+      "import { Client } from '@modelcontextprotocol/sdk/client/index.js';",
+      "import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';",
+      "import { createServer } from '../src/index.js';",
       '',
       `describe('${serverName} MCP Server', () => {`,
+      '  let client: Client;',
+      '  let cleanup: () => Promise<void>;',
+      '',
+      '  beforeAll(async () => {',
+      '    const server = createServer();',
+      '    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();',
+      '',
+      '    client = new Client({',
+      "      name: 'test-client',",
+      "      version: '1.0.0',",
+      '    });',
+      '',
+      '    await server.connect(serverTransport);',
+      '    await client.connect(clientTransport);',
+      '',
+      '    cleanup = async () => {',
+      '      await client.close();',
+      '      await server.close();',
+      '    };',
+      '  });',
+      '',
+      '  afterAll(async () => {',
+      '    await cleanup?.();',
+      '  });',
       '',
     ];
 
     // Test that all tools are registered
     parts.push(
       "  describe('Tool Registration', () => {",
-      "    it('should have all expected tools', () => {",
-      '      const expectedTools = ['
+      "    it('should have all expected tools', async () => {",
+      '      const result = await client.listTools();',
+      '      const toolNames = result.tools.map(t => t.name);',
+      ''
     );
 
     for (const spec of toolSpecs) {
-      parts.push(`        '${spec.name}',`);
+      parts.push(`      expect(toolNames).toContain('${spec.name}');`);
     }
 
     parts.push(
-      '      ];',
-      '      // Verify tools exist (placeholder for actual MCP client test)',
-      '      expect(expectedTools.length).toBeGreaterThan(0);',
       '    });',
       '  });',
       ''
@@ -138,11 +158,11 @@ export class TestsGenerator {
       }
     }
 
-    parts.push(`      const result = await callTool('${spec.name}', {`);
+    parts.push(`      const result = await client.callTool('${spec.name}', {`);
     parts.push(...exampleParams);
     parts.push('      });', '');
     parts.push("      expect(result).toBeDefined();");
-    parts.push("      expect(result.error).toBeUndefined();");
+    parts.push("      expect(result.content).toBeDefined();");
     parts.push('    });', '');
 
     return parts;
@@ -160,7 +180,7 @@ export class TestsGenerator {
     if (stringProps.length > 0) {
       parts.push(
         `    it('should handle empty strings gracefully', async () => {`,
-        `      const result = await callTool('${spec.name}', {`
+        `      const result = await client.callTool('${spec.name}', {`
       );
 
       for (const [name] of stringProps) {
@@ -183,7 +203,7 @@ export class TestsGenerator {
     if (numberProps.length > 0) {
       parts.push(
         `    it('should handle zero values', async () => {`,
-        `      const result = await callTool('${spec.name}', {`
+        `      const result = await client.callTool('${spec.name}', {`
       );
 
       for (const [name] of numberProps) {
@@ -213,7 +233,7 @@ export class TestsGenerator {
     if (required.length > 0) {
       parts.push(
         `    it('should handle missing required params', async () => {`,
-        `      const result = await callTool('${spec.name}', {});`,
+        `      const result = await client.callTool('${spec.name}', {});`,
         '',
         "      expect(result).toBeDefined();",
         '      // Should not crash, may return error',
@@ -225,7 +245,7 @@ export class TestsGenerator {
     // Test with invalid types
     parts.push(
       `    it('should handle invalid input types', async () => {`,
-      `      const result = await callTool('${spec.name}', {`
+      `      const result = await client.callTool('${spec.name}', {`
     );
 
     const props = spec.inputSchema.properties ?? {};
