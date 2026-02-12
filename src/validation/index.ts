@@ -17,3 +17,17 @@ export {
   validateTypeScriptCode,
   validateGeneratedServer,
 } from './parser.js';
+
+export {
+  validateMcpName,
+  validateVersion,
+  validateServerJson,
+  validateGeneratedServerForRegistry,
+  ServerJsonSchema,
+  EnvironmentVariableSchema,
+  PackageSchema,
+  type ServerJson,
+  type EnvironmentVariable,
+  type Package,
+  type RegistryValidationResult,
+} from './registry.js';

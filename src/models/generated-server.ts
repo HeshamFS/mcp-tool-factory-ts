@@ -1,6 +1,8 @@
 import { mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
 import type { ToolSpec } from './tool-spec.js';
+import type { ResourceSpec } from './resource-spec.js';
+import type { PromptSpec } from './prompt-spec.js';
 import type { GenerationLog } from './generation-log.js';
 import { generationLogToMarkdown } from './generation-log.js';
 
@@ -30,6 +32,16 @@ export interface GeneratedServer {
   githubActions: string;
   /** server.json for MCP Registry */
   serverJson: string;
+  /** CHANGELOG.md content */
+  changelog: string;
+  /** docs/tools.json - machine-readable API spec */
+  toolsSpec: string;
+  /** docs/index.md - API documentation entry point */
+  apiDocsIndex: string;
+  /** Resource specifications */
+  resourceSpecs: ResourceSpec[];
+  /** Prompt specifications */
+  promptSpecs: PromptSpec[];
   /** Execution log for tracing */
   executionLog?: GenerationLog | null;
 }
@@ -52,6 +64,11 @@ export function createGeneratedServer(
     tsconfigJson: partial.tsconfigJson ?? '',
     githubActions: partial.githubActions ?? '',
     serverJson: partial.serverJson ?? '',
+    changelog: partial.changelog ?? '',
+    toolsSpec: partial.toolsSpec ?? '',
+    apiDocsIndex: partial.apiDocsIndex ?? '',
+    resourceSpecs: partial.resourceSpecs ?? [],
+    promptSpecs: partial.promptSpecs ?? [],
     executionLog: partial.executionLog ?? null,
   };
 }
@@ -76,6 +93,24 @@ export async function writeServerToDirectory(
   await writeFile(join(outputPath, 'skill.md'), server.skillFile);
   await writeFile(join(outputPath, 'package.json'), server.packageJson);
   await writeFile(join(outputPath, 'tsconfig.json'), server.tsconfigJson);
+
+  // Write CHANGELOG.md
+  if (server.changelog) {
+    await writeFile(join(outputPath, 'CHANGELOG.md'), server.changelog);
+  }
+
+  // Write docs directory
+  if (server.toolsSpec || server.apiDocsIndex) {
+    const docsDir = join(outputPath, 'docs');
+    await mkdir(docsDir, { recursive: true });
+
+    if (server.toolsSpec) {
+      await writeFile(join(docsDir, 'tools.json'), server.toolsSpec);
+    }
+    if (server.apiDocsIndex) {
+      await writeFile(join(docsDir, 'index.md'), server.apiDocsIndex);
+    }
+  }
 
   // Write server.json for MCP Registry
   if (server.serverJson) {

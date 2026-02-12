@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g., 0.1.0, 0.2.0, 1.0.0)'
+        description: 'Version to release (e.g., 0.3.0, 1.0.0)'
         required: true
         type: string
 
@@ -37,7 +37,10 @@ jobs:
 
       - name: Update version in package.json
         run: |
-          npm version ${{ github.event.inputs.version }} --no-git-tag-version
+          CURRENT=$(node -p "require('./package.json').version")
+          if [ "$CURRENT" != "${{ github.event.inputs.version }}" ]; then
+            npm version ${{ github.event.inputs.version }} --no-git-tag-version
+          fi
 
       - name: Update version in server.json
         run: |
@@ -52,11 +55,13 @@ jobs:
       - name: Test
         run: pnpm run test
 
-      - name: Commit version bump
+      - name: Commit version bump (if changed)
         run: |
-          git add package.json server.json pnpm-lock.yaml
-          git commit -m "chore: release v${{ github.event.inputs.version }}"
-          git push
+          if ! git diff --quiet package.json server.json; then
+            git add package.json server.json pnpm-lock.yaml
+            git commit -m "chore: release v${{ github.event.inputs.version }}"
+            git push
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

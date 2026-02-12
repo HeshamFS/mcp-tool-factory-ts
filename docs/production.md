@@ -338,19 +338,29 @@ Enabled by default. Disable with `--no-health-check`.
 
 ### Generated Code
 
+The health check tool reports server version, uptime, memory usage, transport mode, and auth configuration status:
+
 ```typescript
 server.tool(
   'health_check',
+  'Check server health and configuration status',
   {},
   async () => {
+    const result: Record<string, unknown> = {
+      status: 'healthy',
+      server: 'my-server',
+      version: '1.0.0',
+      uptime: process.uptime(),
+      memory: process.memoryUsage().heapUsed,
+      transport: process.env.MCP_TRANSPORT || 'stdio',
+      timestamp: new Date().toISOString(),
+      tools_available: 5,
+    };
+
     return {
       content: [{
         type: 'text',
-        text: JSON.stringify({
-          status: 'healthy',
-          timestamp: new Date().toISOString(),
-          version: '1.0.0',
-        }),
+        text: JSON.stringify(result),
       }],
     };
   }
@@ -362,10 +372,40 @@ server.tool(
 ```json
 {
   "status": "healthy",
+  "server": "my-server",
+  "version": "1.0.0",
+  "uptime": 3621.45,
+  "memory": 52428800,
+  "transport": "stdio",
   "timestamp": "2024-01-15T12:34:56.789Z",
-  "version": "1.0.0"
+  "tools_available": 5
 }
 ```
+
+### HTTP Health Endpoint
+
+When using Streamable HTTP transport (`MCP_TRANSPORT=http`), the generated server also exposes a dedicated `/health` GET endpoint on the HTTP server itself, separate from the MCP tool:
+
+```bash
+curl http://localhost:8000/health
+```
+
+```json
+{
+  "status": "healthy",
+  "server": "my-server",
+  "transport": "http",
+  "timestamp": "2024-01-15T12:34:56.789Z"
+}
+```
+
+---
+
+## How Production Features Are Wired
+
+Production features (logging, metrics, rate limiting, retries) are wired directly into each tool handler at generation time via Handlebars template conditionals. This means the generated server code includes only the production features you enable -- there is no runtime overhead for disabled features.
+
+For example, when `enableLogging` is set, each tool handler includes `log('info', ...)` calls at entry and on error. When `enableMetrics` is set, each handler tracks call counts and duration via `toolCallCounter` and `toolDurationHistogram`. Rate limiting checks are inserted at the top of each handler when `enableRateLimiting` is set.
 
 ---
 
@@ -493,6 +533,49 @@ spec:
               memory: "256Mi"
               cpu: "500m"
 ```
+
+---
+
+## Cost Tracking
+
+### Budget Limits
+
+Set a maximum spend for generation:
+
+```bash
+mcp-factory generate "Create enterprise tools" --budget 2.00
+```
+
+If the cumulative LLM cost exceeds the budget mid-generation, the process aborts with a `BudgetExceededError`.
+
+### Cost in Execution Logs
+
+The `EXECUTION_LOG.md` generated with each server now includes cost information:
+
+```markdown
+| Estimated Cost | $0.1612 |
+| LLM Calls | 6 |
+| Total Tokens | 12,450 in / 8,320 out |
+
+## Cost Breakdown
+
+| Phase | Cost | Calls |
+|-------|------|-------|
+| tool_extraction | $0.0089 | 1 |
+| implementation | $0.0799 | 3 |
+| resource_extraction | $0.0126 | 1 |
+| docs_generation | $0.0598 | 1 |
+```
+
+### Provider Cost Comparison
+
+Before committing to a provider, compare estimated costs:
+
+```bash
+mcp-factory generate "Create tools" --compare-costs
+```
+
+This uses a built-in pricing table for 50+ models across all providers. No extra API calls are made.
 
 ## Next Steps
 

@@ -404,10 +404,19 @@ export class WebSearcher {
 
 /**
  * Generate relevant search queries from a description.
+ *
+ * @param description - The tool description to search for
+ * @param includeMcpSpecs - Whether to include MCP-specific queries (default: true)
  */
-function generateSearchQueries(description: string): string[] {
+function generateSearchQueries(description: string, includeMcpSpecs: boolean = true): string[] {
   const queries: string[] = [];
   const descLower = description.toLowerCase();
+
+  // Always add MCP-specific queries first for server generation context
+  if (includeMcpSpecs) {
+    queries.push('Model Context Protocol MCP server.json schema 2025');
+    queries.push('MCP SDK @modelcontextprotocol/sdk latest version npm 2025');
+  }
 
   // Look for common patterns
   if (descLower.includes('weather')) {

@@ -35,3 +35,14 @@ export {
   createValidResult,
   createInvalidResult,
 } from './validation-result.js';
+
+export {
+  type ResourceSpec,
+  createResourceSpec,
+} from './resource-spec.js';
+
+export {
+  type PromptSpec,
+  type PromptArgument,
+  createPromptSpec,
+} from './prompt-spec.js';

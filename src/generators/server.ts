@@ -41,7 +41,10 @@ Handlebars.registerHelper('exampleValue', (type: string) => {
 });
 
 Handlebars.registerHelper('lookup', (obj: Record<string, string>, key: string) => {
-  return obj[key] || '      // TODO: Implement this tool\n      return { content: [{ type: "text", text: JSON.stringify({ error: "Not implemented" }) }] };';
+  return (
+    obj[key] ||
+    '      // TODO: Implement this tool\n      return { content: [{ type: "text", text: JSON.stringify({ error: "Not implemented" }) }] };'
+  );
 });
 
 /**
@@ -114,9 +117,11 @@ export class ServerGenerator {
       authEnvVars?: string[];
       includeHealthCheck?: boolean;
       productionConfig?: ProductionConfig;
+      resourceSpecs?: Array<{ uri: string; name: string; description: string; mimeType: string; template: boolean }>;
+      promptSpecs?: Array<{ name: string; description: string; arguments: Array<{ name: string; description: string; required: boolean }>; template: string }>;
     }
   ): string {
-    const { authEnvVars = [], includeHealthCheck = true, productionConfig } = options ?? {};
+    const { authEnvVars = [], includeHealthCheck = true, productionConfig, resourceSpecs = [], promptSpecs = [] } = options ?? {};
 
     // Collect all dependencies from tool specs
     const allDeps = new Set<string>();
@@ -156,9 +161,13 @@ export class ServerGenerator {
     // 1. Generate dependency imports from tool specs
     const depImportStatements = this.generateDependencyImports(allDeps);
     // 2. Parse production imports
-    const prodImportStatements = prodImports ? prodImports.split('\n').filter(l => l.trim()) : [];
+    const prodImportStatements = prodImports ? prodImports.split('\n').filter((l) => l.trim()) : [];
     // 3. Combine all import statements
-    const allImports = [...depImportStatements, ...extractedImportStatements, ...prodImportStatements];
+    const allImports = [
+      ...depImportStatements,
+      ...extractedImportStatements,
+      ...prodImportStatements,
+    ];
 
     // Deduplicate by extracting the package name and keeping first occurrence
     const seenPackages = new Set<string>();
@@ -189,6 +198,8 @@ export class ServerGenerator {
       productionMetrics: prodMetrics,
       productionRateLimiting: prodRateLimiting,
       productionRetry: prodRetry,
+      resourceSpecs,
+      promptSpecs,
     });
   }
 
@@ -205,10 +216,7 @@ export class ServerGenerator {
   /**
    * Generate Dockerfile for the server.
    */
-  generateDockerfile(
-    toolSpecs: ToolSpec[],
-    authEnvVars: string[] = []
-  ): string {
+  generateDockerfile(toolSpecs: ToolSpec[], authEnvVars: string[] = []): string {
     return this.dockerfileTemplate({
       toolSpecs,
       authEnvVars,
@@ -225,20 +233,24 @@ export class ServerGenerator {
       productionConfig?: ProductionConfig;
       githubUsername?: string;
       description?: string;
+      version?: string;
     }
   ): string {
-    const { productionConfig, githubUsername, description } = options ?? {};
+    const { productionConfig, githubUsername, description, version } = options ?? {};
     const baseName = serverName.toLowerCase().replace(/\s+/g, '-');
 
     // Generate npm package name (scoped if github username provided)
-    const npmPackageName = githubUsername
-      ? `@${githubUsername}/${baseName}`
-      : baseName;
+    const npmPackageName = githubUsername ? `@${githubUsername}/${baseName}` : baseName;
 
     // Generate MCP name for registry (io.github.<username>/<name>)
     const mcpName = githubUsername
       ? `io.github.${githubUsername}/${baseName}`
       : `io.local/${baseName}`;
+
+    // Generate repository URL if github username provided
+    const repositoryUrl = githubUsername
+      ? `https://github.com/${githubUsername}/${baseName}.git`
+      : null;
 
     // Collect all dependencies
     const dependencies = new Set<string>();
@@ -262,18 +274,18 @@ export class ServerGenerator {
     return this.packageTemplate({
       npmPackageName,
       mcpName,
+      version: version ?? '1.0.0',
       description: description ?? `MCP server: ${serverName}`,
       dependencies: [...dependencies],
+      repositoryUrl,
+      binName: baseName,
     });
   }
 
   /**
    * Generate GitHub Actions workflow.
    */
-  generateGitHubActions(
-    serverName: string,
-    authEnvVars: string[] = []
-  ): string {
+  generateGitHubActions(serverName: string, authEnvVars: string[] = []): string {
     const dockerImage = serverName.toLowerCase().replace(/\s+/g, '-');
 
     return this.githubActionsTemplate({
@@ -324,16 +336,14 @@ export class ServerGenerator {
       : `io.local/${baseName}`;
 
     // Generate npm package name (scoped if github username provided)
-    const npmPackageName = githubUsername
-      ? `@${githubUsername}/${baseName}`
-      : baseName;
+    const npmPackageName = githubUsername ? `@${githubUsername}/${baseName}` : baseName;
 
     // Generate repository URL
-    const repoUrl = repositoryUrl ?? (
-      githubUsername
+    const repoUrl =
+      repositoryUrl ??
+      (githubUsername
         ? `https://github.com/${githubUsername}/${baseName}`
-        : `https://github.com/user/${baseName}`
-    );
+        : `https://github.com/user/${baseName}`);
 
     return this.serverJsonTemplate({
       mcpName,
@@ -437,9 +447,7 @@ class ProductionCodeGenerator {
     if (!this.config.enableLogging) return '';
 
     const level = this.config.logLevel ?? 'info';
-    const transport = this.config.logJson
-      ? ''
-      : `, transport: { target: 'pino-pretty' }`;
+    const transport = this.config.logJson ? '' : `, transport: { target: 'pino-pretty' }`;
 
     return `
 const logger = pino({ level: '${level}'${transport} });

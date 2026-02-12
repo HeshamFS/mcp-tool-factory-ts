@@ -72,30 +72,72 @@ mcp-tool-factory-ts/
 │   │   ├── agent.ts     # Core generation logic
 │   │   └── index.ts     # Exports
 │   │
-│   ├── providers/       # LLM Providers
-│   │   ├── base.ts      # Abstract provider
-│   │   ├── anthropic.ts # Claude integration
-│   │   ├── openai.ts    # GPT integration
-│   │   ├── google.ts    # Gemini integration
-│   │   └── factory.ts   # Provider factory
+│   ├── providers/       # LLM Providers (Vercel AI SDK v0.3.0)
+│   │   ├── base.ts      # Abstract provider with caching + LLMResponse
+│   │   ├── llm-provider.ts # UnifiedLLMProvider (10 AI SDK providers)
+│   │   ├── claude-code.ts # Claude Code OAuth integration
+│   │   └── factory.ts   # Provider auto-detection factory
 │   │
 │   ├── generators/      # Code Generators
-│   │   ├── server.ts    # Server code generator
-│   │   ├── docs.ts      # Documentation generator
+│   │   ├── server.ts    # Server code generator (tools + resources + prompts)
+│   │   ├── docs.ts      # Documentation generator (README, skill, changelog, API docs)
 │   │   └── tests.ts     # Test generator
 │   │
 │   ├── templates/       # Handlebars Templates
-│   │   ├── server.ts.hbs
+│   │   ├── server.ts.hbs      # Server template
 │   │   ├── package.json.hbs
+│   │   ├── server.json.hbs
 │   │   └── ...
 │   │
 │   ├── openapi/         # OpenAPI Parser
+│   │   ├── generator.ts # OpenAPI spec → MCP tools
+│   │   └── index.ts
+│   │
 │   ├── database/        # Database Introspection
+│   │   ├── generator.ts # DB schema → CRUD tools
+│   │   ├── introspector.ts
+│   │   └── index.ts
+│   │
+│   ├── graphql/         # GraphQL SDL Parser (v0.2.0)
+│   │   ├── generator.ts # GraphQL SDL → MCP tools
+│   │   └── index.ts
+│   │
+│   ├── ontology/        # Ontology Parser (v0.2.0)
+│   │   ├── types.ts     # OntologyDefinition types
+│   │   ├── parser.ts    # Multi-format parser (RDF/OWL, JSON-LD, YAML)
+│   │   ├── generator.ts # Ontology → CRUD + relationship tools
+│   │   └── index.ts
+│   │
+│   ├── cache/           # LLM Response Cache (v0.2.0)
+│   │   └── index.ts     # LLMCache with TTL and statistics
+│   │
 │   ├── models/          # Data Models
+│   │   ├── tool-spec.ts
+│   │   ├── resource-spec.ts   # ResourceSpec (v0.2.0)
+│   │   ├── prompt-spec.ts     # PromptSpec (v0.2.0)
+│   │   ├── generated-server.ts
+│   │   ├── generation-log.ts
+│   │   └── index.ts
+│   │
 │   ├── validation/      # Code Validation
+│   │   ├── parser.ts    # Response parsing
+│   │   ├── schemas.ts   # Zod schemas
+│   │   ├── registry.ts  # Validation registry
+│   │   └── index.ts
+│   │
 │   ├── prompts/         # LLM Prompts
+│   │   └── prompts.ts   # Extraction prompts (tools, resources, prompts)
+│   │
 │   ├── config/          # Configuration
 │   ├── cli/             # CLI Interface
+│   ├── server/          # MCP Server Mode (factory-as-server)
+│   ├── auth/            # OAuth2 Support
+│   ├── web-search/      # Web Search Integration
+│   ├── production/      # Production Code Generation
+│   ├── security/        # Security Scanning
+│   ├── middleware/       # Validation Middleware
+│   ├── observability/   # Telemetry/Tracing
+│   ├── execution-logger/ # Execution Logging
 │   └── index.ts         # Main exports
 │
 ├── tests/               # Test files
@@ -342,34 +384,31 @@ Brief description of changes.
 
 ### New LLM Provider
 
-1. Create provider in `src/providers/`:
+Since v0.3.0, all Vercel AI SDK providers are handled by `UnifiedLLMProvider`. To add a new AI SDK provider:
+
+1. Add the enum value and models in `src/config/providers.ts`:
 
 ```typescript
-// src/providers/new-provider.ts
-export class NewProvider extends BaseLLMProvider {
-  async call(system: string, user: string, maxTokens: number) {
-    // Implementation
-  }
-}
-```
-
-2. Add to factory:
-
-```typescript
-// src/providers/factory.ts
-case LLMProvider.NEW_PROVIDER:
-  return new NewProvider(options);
-```
-
-3. Update config:
-
-```typescript
-// src/config/providers.ts
 export enum LLMProvider {
   // ...
   NEW_PROVIDER = 'new_provider',
 }
 ```
+
+2. Add a `case` in `UnifiedLLMProvider.resolveModel()` (`src/providers/llm-provider.ts`):
+
+```typescript
+case LLMProvider.NEW_PROVIDER: {
+  const { createNewProvider } = await import('@ai-sdk/new-provider');
+  const provider = createNewProvider({ apiKey: this.apiKey });
+  this.modelInstance = provider(this.model);
+  break;
+}
+```
+
+3. Add pricing in `src/config/pricing.ts` and the package name in `getPackageName()`.
+
+For non-AI SDK providers, extend `BaseCachingProvider` directly (like `ClaudeCodeProvider`).
 
 ### New Template
 
@@ -406,6 +445,70 @@ program
   });
 ```
 
+### New Input Source
+
+To add a new input source (like GraphQL SDL or Ontology), follow this pattern:
+
+1. Create a new directory under `src/` (e.g., `src/my-format/`):
+
+```
+src/my-format/
+├── types.ts       # Type definitions for the parsed format
+├── parser.ts      # Parser that converts raw input to typed definitions
+├── generator.ts   # Generator that produces MCP server code + ToolSpec[]
+└── index.ts       # Re-exports
+```
+
+2. Implement the generator class:
+
+```typescript
+// src/my-format/generator.ts
+import type { ToolSpec } from '../models/tool-spec.js';
+import { createToolSpec } from '../models/tool-spec.js';
+
+export class MyFormatServerGenerator {
+  constructor(private definition: MyDefinition) {}
+
+  generateServerCode(serverName: string): string {
+    // Return complete TypeScript MCP server code
+  }
+
+  getToolSpecs(): ToolSpec[] {
+    // Return tool specifications for documentation/templates
+  }
+}
+```
+
+3. Add a generation method to `ToolFactoryAgent` in `src/agent/agent.ts`:
+
+```typescript
+async generateFromMyFormat(
+  content: string,
+  options?: { serverName?: string }
+): Promise<GeneratedServer> {
+  // Use dynamic import to keep the dependency optional
+  const { MyFormatParser, MyFormatServerGenerator } = await import('../my-format/index.js');
+
+  const parser = new MyFormatParser();
+  const definition = parser.parse(content);
+  const generator = new MyFormatServerGenerator(definition);
+
+  const serverCode = generator.generateServerCode(options?.serverName ?? 'MyServer');
+  const toolSpecs = generator.getToolSpecs();
+
+  return createGeneratedServer({
+    name: options?.serverName ?? 'MyServer',
+    serverCode,
+    toolSpecs,
+    // ... generate other artifacts using this.serverGenerator, this.docsGenerator, etc.
+  });
+}
+```
+
+4. Optionally expose it as an MCP server tool in `src/server/index.ts`.
+
+5. Add tests in `tests/` covering parsing and code generation.
+
 ---
 
 ## Release Process
@@ -428,6 +531,5 @@ Releases are automated via GitHub Actions:
 
 - **Questions:** [GitHub Discussions](https://github.com/HeshamFS/mcp-tool-factory-ts/discussions)
 - **Bugs:** [GitHub Issues](https://github.com/HeshamFS/mcp-tool-factory-ts/issues)
-- **Chat:** [MCP Discord](https://discord.gg/mcp)
 
 Thank you for contributing!

@@ -16,6 +16,8 @@ MCP Tool Factory is a TypeScript library and CLI that generates complete Model C
 ### Input Sources
 - [OpenAPI Guide](openapi.md) - Generate from REST API specs
 - [Database Guide](database.md) - Generate CRUD tools from databases
+- [GraphQL Guide](graphql.md) - Generate from GraphQL schemas
+- [Ontology Guide](ontology.md) - Generate from RDF/OWL, JSON-LD, or YAML ontologies
 
 ### Features
 - [Providers Guide](providers.md) - LLM provider configuration
@@ -35,15 +37,19 @@ The Model Context Protocol (MCP) is an open standard that enables:
 - **Unified Tool Interface** - One server works with Claude, OpenAI, Google, LangChain
 - **Secure Connections** - Controlled access to external data and APIs
 - **Standardized Schema** - Tools are self-describing with JSON Schema
-- **Transport Agnostic** - Works over stdio, HTTP/SSE, WebSocket
+- **Transport Agnostic** - Works over stdio, Streamable HTTP
 
 ## Feature Highlights
 
 | Feature | Description |
 |---------|-------------|
-| **Multi-Input** | Natural language, OpenAPI, or database |
-| **Multi-Provider** | Claude, GPT-4, Gemini |
+| **Multi-Input** | Natural language, OpenAPI, database, GraphQL, or ontology |
+| **10 LLM Providers** | Anthropic, OpenAI, Google, Mistral, DeepSeek, Groq, xAI, Azure, Cohere + Claude Code |
+| **Cost Tracking** | Per-call cost, budget limits, provider cost comparison |
+| **Resources & Prompts** | Expose structured data and reusable prompt templates |
 | **Web Search** | Auto-fetch API docs for better generation |
+| **LLM Caching** | Response caching with configurable TTL |
+| **Parallel Generation** | Concurrent tool implementation (default: 5 workers) |
 | **Production Ready** | Logging, metrics, rate limiting, retries |
 | **Type Safe** | Full TypeScript with strict mode |
 | **MCP Registry** | Generates server.json for publishing |
@@ -63,7 +69,7 @@ The Model Context Protocol (MCP) is an open standard that enables:
 
 ```bash
 # Install
-npm install -g mcp-tool-factory
+npm install -g @heshamfsalama/mcp-tool-factory
 
 # Set API key
 export ANTHROPIC_API_KEY=your-key

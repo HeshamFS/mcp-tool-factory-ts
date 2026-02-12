@@ -10,7 +10,7 @@
 // Re-export all public APIs
 
 // Agent
-export { ToolFactoryAgent, type GenerateOptions } from './agent/index.js';
+export { ToolFactoryAgent, BudgetExceededError, type GenerateOptions } from './agent/index.js';
 
 // Models
 export {
@@ -31,6 +31,11 @@ export {
   createValidResult,
   createInvalidResult,
   InputType,
+  type ResourceSpec,
+  createResourceSpec,
+  type PromptSpec,
+  type PromptArgument,
+  createPromptSpec,
 } from './models/index.js';
 
 // Config
@@ -42,18 +47,30 @@ export {
   CLAUDE_MODELS,
   OPENAI_MODELS,
   GOOGLE_MODELS,
+  MISTRAL_MODELS,
+  DEEPSEEK_MODELS,
+  GROQ_MODELS,
+  XAI_MODELS,
+  COHERE_MODELS,
   DEFAULT_MODELS,
   API_KEY_ENV_VARS,
+  type ModelPricing,
+  type TokenDetails,
+  type CostBreakdown,
+  MODEL_PRICING,
+  calculateCost,
+  formatCost,
+  estimateCost,
 } from './config/index.js';
 
 // Providers
 export {
+  type LLMProviderInterface,
+  BaseCachingProvider,
   BaseLLMProvider,
   type LLMResponse,
   createProvider,
-  AnthropicProvider,
-  OpenAIProvider,
-  GoogleProvider,
+  UnifiedLLMProvider,
   ClaudeCodeProvider,
 } from './providers/index.js';
 
@@ -75,6 +92,18 @@ export {
   extractJsonFromResponse,
   validateTypeScriptCode,
   validateGeneratedServer,
+  // Registry validation
+  validateMcpName,
+  validateVersion,
+  validateServerJson,
+  validateGeneratedServerForRegistry,
+  ServerJsonSchema,
+  EnvironmentVariableSchema,
+  PackageSchema,
+  type ServerJson,
+  type EnvironmentVariable,
+  type Package,
+  type RegistryValidationResult,
 } from './validation/index.js';
 
 // OpenAPI
@@ -97,6 +126,19 @@ export {
   getPrimaryKey,
   getNonPkColumns,
 } from './database/index.js';
+
+// GraphQL
+export { GraphQLServerGenerator } from './graphql/index.js';
+
+// Ontology
+export {
+  OntologyParser,
+  OntologyServerGenerator,
+  type OntologyDefinition,
+  type OntologyClass,
+  type OntologyProperty,
+  type OntologyIndividual,
+} from './ontology/index.js';
 
 // Auth
 export {
@@ -197,5 +239,18 @@ export {
   generateTelemetryCode,
 } from './observability/index.js';
 
+// Cache
+export {
+  LLMCache,
+  type CacheConfig,
+  type CacheEntry,
+  type CacheStats,
+  type CacheKeyParams,
+  DEFAULT_CACHE_CONFIG,
+  createCacheConfig,
+  getGlobalCache,
+  resetGlobalCache,
+} from './cache/index.js';
+
 // Version
-export const VERSION = '0.1.0';
+export const VERSION = '0.3.0';

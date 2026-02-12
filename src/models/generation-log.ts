@@ -79,6 +79,13 @@ export interface GenerationLog {
   // Output summary
   toolsGenerated: string[];
   dependenciesUsed: string[];
+
+  // Cost tracking
+  totalTokensIn: number;
+  totalTokensOut: number;
+  totalCost: number;
+  llmCallCount: number;
+  costBreakdown: Array<{ phase: string; cost: number; calls: number }>;
 }
 
 /**
@@ -97,6 +104,11 @@ export function createGenerationLog(serverName: string): GenerationLog {
     steps: [],
     toolsGenerated: [],
     dependenciesUsed: [],
+    totalTokensIn: 0,
+    totalTokensOut: 0,
+    totalCost: 0,
+    llmCallCount: 0,
+    costBreakdown: [],
   };
 }
 
@@ -136,6 +148,9 @@ export function generationLogToMarkdown(log: GenerationLog): string {
     `**Provider:** ${log.provider}`,
     `**Model:** ${log.model}`,
     `**Web Search:** ${log.webSearchEnabled ? 'Enabled' : 'Disabled'}`,
+    `**LLM Calls:** ${log.llmCallCount}`,
+    `**Tokens:** ${log.totalTokensIn.toLocaleString()} in / ${log.totalTokensOut.toLocaleString()} out`,
+    `**Estimated Cost:** $${log.totalCost.toFixed(4)}`,
     '',
     '---',
     '',
@@ -166,6 +181,16 @@ export function generationLogToMarkdown(log: GenerationLog): string {
         lines.push('');
       }
     });
+  }
+
+  // Cost Breakdown
+  if (log.costBreakdown.length > 0) {
+    lines.push('---', '', '## Cost Breakdown', '', '| Phase | Cost | Calls |', '|-------|------|-------|');
+    for (const entry of log.costBreakdown) {
+      lines.push(`| ${entry.phase} | $${entry.cost.toFixed(4)} | ${entry.calls} |`);
+    }
+    lines.push(`| **Total** | **$${log.totalCost.toFixed(4)}** | **${log.llmCallCount}** |`);
+    lines.push('');
   }
 
   // Enhanced description

@@ -2,7 +2,7 @@
  * Claude Code (Claude Agent SDK) provider implementation.
  */
 
-import { BaseLLMProvider, type LLMResponse, type ProviderOptions } from './base.js';
+import { BaseCachingProvider, type LLMResponse, type ProviderOptions } from './base.js';
 
 /**
  * Provider for Claude using the Claude Agent SDK.
@@ -13,27 +13,22 @@ import { BaseLLMProvider, type LLMResponse, type ProviderOptions } from './base.
  * - Limiting to single turn (maxTurns=1)
  * - Using custom systemPrompt
  */
-export class ClaudeCodeProvider extends BaseLLMProvider {
-  private initialized = false;
-
-  /**
-   * Initialize the Claude Agent SDK environment.
-   */
-  protected async initializeClient(): Promise<void> {
-    // SDK reads CLAUDE_CODE_OAUTH_TOKEN from environment
-    process.env.CLAUDE_CODE_OAUTH_TOKEN = this.apiKey;
-    this.initialized = true;
-    this.client = true; // Just a flag that we're initialized
+export class ClaudeCodeProvider extends BaseCachingProvider {
+  constructor(options: ProviderOptions) {
+    super(options);
   }
 
   /**
    * Make API call using Claude Agent SDK.
    */
-  protected async callApi(
+  protected async doCall(
     systemPrompt: string,
     userPrompt: string,
     _maxTokens: number
   ): Promise<LLMResponse> {
+    // SDK reads CLAUDE_CODE_OAUTH_TOKEN from environment
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = this.apiKey;
+
     const text = await this.asyncQuery(systemPrompt, userPrompt);
 
     return {
@@ -103,7 +98,7 @@ export class ClaudeCodeProvider extends BaseLLMProvider {
   /**
    * Return the provider name for logging.
    */
-  get providerName(): string {
+  override get providerName(): string {
     return 'ClaudeCode';
   }
 }

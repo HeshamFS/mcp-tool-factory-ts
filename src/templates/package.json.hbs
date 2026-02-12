@@ -1,19 +1,30 @@
 {
   "name": "{{npmPackageName}}",
-  "version": "0.1.0",
+  "version": "{{version}}",
   "description": "{{description}}",
   "mcpName": "{{mcpName}}",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "{{binName}}": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"require('fs').chmodSync('dist/index.js', '755')\"",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "test": "jest"
-  },
+    "test": "vitest run",
+    "docs": "typedoc src/index.ts --out docs/api --skipErrorChecking"
+  },{{#if repositoryUrl}}
+  "repository": {
+    "type": "git",
+    "url": "{{repositoryUrl}}"
+  },{{/if}}
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "zod": "^3.24.0"{{#each dependencies}},
     "{{this}}": "*"{{/each}}
   },
@@ -21,9 +32,8 @@
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0",
     "tsx": "^4.7.0",
-    "jest": "^29.7.0",
-    "@jest/globals": "^29.7.0",
-    "ts-jest": "^29.2.0"
+    "vitest": "^3.0.0",
+    "typedoc": "^0.27.0"
   },
   "engines": {
     "node": ">=18.0.0"

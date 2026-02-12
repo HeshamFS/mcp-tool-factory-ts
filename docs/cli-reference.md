@@ -22,6 +22,8 @@ mcp-factory <command> [options]
 | `generate` | Generate MCP server from natural language |
 | `from-openapi` | Generate from OpenAPI specification |
 | `from-database` | Generate from database schema |
+| `from-graphql` | Generate from GraphQL SDL schema |
+| `from-ontology` | Generate from ontology (RDF/OWL, JSON-LD, YAML) |
 | `test` | Run tests for generated server |
 | `serve` | Start server for testing |
 | `info` | Display factory information |
@@ -53,7 +55,7 @@ mcp-factory generate <description> [options]
 | `-d, --description <desc>` | Package description | Auto-generated |
 | `-g, --github-username <user>` | GitHub username for MCP Registry | None |
 | `-v, --version <ver>` | Server version | `1.0.0` |
-| `-p, --provider <provider>` | LLM provider | Auto-detect |
+| `-p, --provider <provider>` | LLM provider (anthropic, openai, google, mistral, deepseek, groq, xai, azure, cohere, claude_code) | Auto-detect |
 | `-m, --model <model>` | Specific model | Provider default |
 | `-w, --web-search` | Search web for API docs | `false` |
 | `-a, --auth <vars...>` | Environment variables for auth | None |
@@ -65,6 +67,14 @@ mcp-factory generate <description> [options]
 | `--rate-limit <n>` | Rate limit (requests/min) | None |
 | `--retries` | Enable retry logic | `true` |
 | `--no-retries` | Disable retries | - |
+| `--parallel` | Generate tool implementations in parallel | `true` |
+| `--no-parallel` | Generate tool implementations sequentially | - |
+| `--concurrency <n>` | Max concurrent LLM calls when parallel | `5` |
+| `--no-cache` | Skip the LLM response cache | - |
+| `--stream` | Stream LLM output tokens as they arrive | `false` |
+| `--budget <amount>` | Maximum spend in USD; aborts if exceeded | None |
+| `--compare-costs` | Show cost comparison across providers before generating | `false` |
+| `-i, --interactive` | Prompt for missing options interactively | `false` |
 
 ### Examples
 
@@ -108,6 +118,25 @@ mcp-factory generate "Create weather tools" \
   --github-username your-username \
   --description "Weather tools for Claude" \
   --version 1.0.0
+```
+
+**With budget limit:**
+```bash
+mcp-factory generate "Create complex analytics tools" \
+  --budget 0.50
+```
+
+**Compare costs across providers before generating:**
+```bash
+mcp-factory generate "Create weather tools" \
+  --compare-costs
+```
+
+**Use a specific provider (e.g., DeepSeek for low cost):**
+```bash
+mcp-factory generate "Create simple tools" \
+  --provider deepseek \
+  --model deepseek-chat
 ```
 
 **Minimal server (no production features):**
@@ -163,6 +192,10 @@ mcp-factory from-openapi <spec-path> [options]
 | `-o, --output <path>` | Output directory | `./servers` |
 | `-n, --name <name>` | Server name | Auto from spec |
 | `-u, --base-url <url>` | API base URL | From spec |
+| `-d, --description <desc>` | Package description | From spec |
+| `-g, --github-username <user>` | GitHub username for MCP Registry | None |
+| `-v, --version <ver>` | Server version | `1.0.0` |
+| `-i, --interactive` | Prompt for missing options | `false` |
 
 ### Examples
 
@@ -226,6 +259,10 @@ mcp-factory from-database <database-path> [options]
 | `-n, --name <name>` | Server name | Auto from database |
 | `-t, --type <type>` | Database type | Auto-detect |
 | `-T, --tables <tables...>` | Specific tables to include | All tables |
+| `-d, --description <desc>` | Package description | Auto-generated |
+| `-g, --github-username <user>` | GitHub username for MCP Registry | None |
+| `-v, --version <ver>` | Server version | `1.0.0` |
+| `-i, --interactive` | Prompt for missing options | `false` |
 
 ### Examples
 
@@ -285,6 +322,145 @@ server.tool('list_users', { limit: z.number(), offset: z.number() }, async ({ li
 
 ---
 
+## from-graphql
+
+Generate an MCP server from a GraphQL SDL schema.
+
+### Synopsis
+
+```bash
+mcp-factory from-graphql <schema-path> [options]
+```
+
+### Arguments
+
+| Argument | Description | Required |
+|----------|-------------|----------|
+| `schema-path` | Path to `.graphql` schema file | Yes |
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-e, --endpoint <url>` | GraphQL endpoint URL | None |
+| `-o, --output <path>` | Output directory | `./servers` |
+| `-n, --name <name>` | Server name | Auto from file |
+| `-d, --description <desc>` | Package description | Auto-generated |
+| `-g, --github-username <user>` | GitHub username for MCP Registry | None |
+| `-v, --version <ver>` | Server version | `1.0.0` |
+| `-i, --interactive` | Prompt for missing options | `false` |
+
+### Examples
+
+**Basic usage:**
+```bash
+mcp-factory from-graphql ./schema.graphql
+```
+
+**With endpoint and custom name:**
+```bash
+mcp-factory from-graphql ./schema.graphql \
+  --endpoint https://api.example.com/graphql \
+  --name my-graphql-server \
+  --output ./servers/graphql
+```
+
+**For MCP Registry publishing:**
+```bash
+mcp-factory from-graphql ./schema.graphql \
+  --name graphql-server \
+  --github-username your-username
+```
+
+### How It Works
+
+The GraphQL generator maps your schema to MCP tools:
+
+| GraphQL Concept | MCP Tool |
+|-----------------|----------|
+| Query fields | Read-only tools |
+| Mutation fields | Write tools |
+| Scalar types | Zod validation schemas |
+| Non-null arguments | Required tool parameters |
+
+---
+
+## from-ontology
+
+Generate an MCP server from an ontology definition (RDF/OWL, JSON-LD, or custom YAML).
+
+### Synopsis
+
+```bash
+mcp-factory from-ontology <ontology-path> [options]
+```
+
+### Arguments
+
+| Argument | Description | Required |
+|----------|-------------|----------|
+| `ontology-path` | Path to ontology file (`.ttl`, `.rdf`, `.jsonld`, `.yaml`, `.yml`) | Yes |
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--format <format>` | Ontology format: `rdf`, `jsonld`, `yaml` | Auto-detect |
+| `-o, --output <path>` | Output directory | `./servers` |
+| `-n, --name <name>` | Server name | Auto from file |
+| `-d, --description <desc>` | Package description | Auto-generated |
+| `-g, --github-username <user>` | GitHub username for MCP Registry | None |
+| `-v, --version <ver>` | Server version | `1.0.0` |
+| `-i, --interactive` | Prompt for missing options | `false` |
+
+### Examples
+
+**RDF/OWL Turtle file:**
+```bash
+mcp-factory from-ontology ./domain.ttl
+```
+
+**JSON-LD ontology:**
+```bash
+mcp-factory from-ontology ./schema.jsonld \
+  --name knowledge-server
+```
+
+**Custom YAML with explicit format:**
+```bash
+mcp-factory from-ontology ./domain.yaml \
+  --format yaml \
+  --output ./servers/ontology
+```
+
+**For MCP Registry publishing:**
+```bash
+mcp-factory from-ontology ./domain.ttl \
+  --name domain-server \
+  --github-username your-username
+```
+
+### Supported Formats
+
+| Format | Extensions | Description |
+|--------|-----------|-------------|
+| RDF/OWL | `.ttl`, `.rdf`, `.owl`, `.n3` | Turtle/RDF-XML ontology files |
+| JSON-LD | `.jsonld` | JSON-LD linked data documents |
+| YAML | `.yaml`, `.yml` | Custom YAML ontology format |
+
+### How It Works
+
+The ontology generator maps your ontology to MCP tools:
+
+| Ontology Concept | MCP Tool |
+|------------------|----------|
+| Classes | CRUD tools per class |
+| Data properties | Tool input parameters |
+| Object properties | Relationship tools |
+| Individuals | Pre-populated seed data |
+
+---
+
 ## test
 
 Run tests for a generated MCP server.
@@ -336,8 +512,8 @@ mcp-factory serve <server-path> [options]
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `-t, --transport <type>` | Transport type (stdio, sse) | `stdio` |
-| `-p, --port <port>` | Port for SSE transport | `8000` |
+| `-t, --transport <type>` | Transport type (stdio, http) | `stdio` |
+| `-p, --port <port>` | Port for Streamable HTTP transport | `8000` |
 
 ### Examples
 
@@ -346,10 +522,10 @@ mcp-factory serve <server-path> [options]
 mcp-factory serve ./servers/my-server
 ```
 
-**SSE transport:**
+**Streamable HTTP transport:**
 ```bash
 mcp-factory serve ./servers/my-server \
-  --transport sse \
+  --transport http \
   --port 3000
 ```
 
@@ -386,6 +562,12 @@ Displays:
 | `ANTHROPIC_API_KEY` | Anthropic Claude API key |
 | `OPENAI_API_KEY` | OpenAI API key |
 | `GOOGLE_API_KEY` | Google Gemini API key |
+| `MISTRAL_API_KEY` | Mistral AI API key |
+| `DEEPSEEK_API_KEY` | DeepSeek API key |
+| `GROQ_API_KEY` | Groq API key |
+| `XAI_API_KEY` | xAI Grok API key |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key |
+| `COHERE_API_KEY` | Cohere API key |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token |
 
 ## Exit Codes

@@ -5,40 +5,46 @@ System design and internal structure of MCP Tool Factory.
 ## Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      MCP Tool Factory                            │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
-│  │   Natural   │  │   OpenAPI   │  │  Database   │              │
-│  │  Language   │  │    Spec     │  │   Schema    │              │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘              │
-│         │                │                │                      │
-│         ▼                ▼                ▼                      │
-│  ┌──────────────────────────────────────────────────────┐       │
-│  │                 ToolFactoryAgent                      │       │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐            │       │
-│  │  │ Anthropic│  │  OpenAI  │  │  Google  │            │       │
-│  │  │ Provider │  │ Provider │  │ Provider │            │       │
-│  │  └──────────┘  └──────────┘  └──────────┘            │       │
-│  └──────────────────────────────────────────────────────┘       │
-│         │                                                        │
-│         ▼                                                        │
-│  ┌──────────────────────────────────────────────────────┐       │
-│  │                    Generators                         │       │
-│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐      │       │
-│  │  │   Server   │  │    Docs    │  │   Tests    │      │       │
-│  │  │ Generator  │  │ Generator  │  │ Generator  │      │       │
-│  │  └────────────┘  └────────────┘  └────────────┘      │       │
-│  └──────────────────────────────────────────────────────┘       │
-│         │                                                        │
-│         ▼                                                        │
-│  ┌──────────────────────────────────────────────────────┐       │
-│  │                 GeneratedServer                       │       │
-│  │  src/index.ts │ tests │ README │ Dockerfile │ CI/CD  │       │
-│  └──────────────────────────────────────────────────────┘       │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                         MCP Tool Factory                              │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐   │
+│  │ Natural  │ │ OpenAPI  │ │ Database │ │ GraphQL  │ │ Ontology │   │
+│  │ Language │ │  Spec    │ │  Schema  │ │  SDL     │ │ RDF/YAML │   │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘   │
+│       │            │            │            │            │           │
+│       ▼            ▼            ▼            ▼            ▼           │
+│  ┌────────────────────────────────────────────────────────────────┐   │
+│  │                     ToolFactoryAgent                            │   │
+│  │  ┌─────────────────────────────────────────────────────────┐   │   │
+│  │  │  UnifiedLLMProvider (Vercel AI SDK)                   │   │   │
+│  │  │  Anthropic │ OpenAI │ Google │ Mistral │ DeepSeek    │   │   │
+│  │  │  Groq │ xAI │ Azure │ Cohere + Claude Code OAuth    │   │   │
+│  │  └─────────────────────────────────────────────────────────┘   │   │
+│  │  ┌──────────────┐  ┌──────────────┐                            │   │
+│  │  │  LLM Cache   │  │  Cost        │                            │   │
+│  │  │  (TTL-based) │  │  Tracking    │                            │   │
+│  │  └──────────────┘  └──────────────┘                            │   │
+│  └────────────────────────────────────────────────────────────────┘   │
+│       │                                                               │
+│       ▼                                                               │
+│  ┌────────────────────────────────────────────────────────────────┐   │
+│  │                       Generators                                │   │
+│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐                │   │
+│  │  │   Server   │  │    Docs    │  │   Tests    │                │   │
+│  │  │ Generator  │  │ Generator  │  │ Generator  │                │   │
+│  │  └────────────┘  └────────────┘  └────────────┘                │   │
+│  └────────────────────────────────────────────────────────────────┘   │
+│       │                                                               │
+│       ▼                                                               │
+│  ┌────────────────────────────────────────────────────────────────┐   │
+│  │                     GeneratedServer                              │   │
+│  │  serverCode │ toolSpecs │ resourceSpecs │ promptSpecs            │   │
+│  │  tests │ README │ Dockerfile │ CI/CD │ server.json │ CHANGELOG  │   │
+│  └────────────────────────────────────────────────────────────────┘   │
+│                                                                       │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Core Components
@@ -58,11 +64,19 @@ class ToolFactoryAgent {
   private testsGenerator: TestsGenerator;
 
   // Generation methods
-  async generateFromDescription(description: string): Promise<GeneratedServer>;
+  async generateFromDescription(description: string, options?: GenerateOptions): Promise<GeneratedServer>;
   async generateFromOpenAPI(spec: object): Promise<GeneratedServer>;
   async generateFromDatabase(path: string): Promise<GeneratedServer>;
+  async generateFromGraphQL(schemaString: string, options?: { endpoint?: string }): Promise<GeneratedServer>;
+  async generateFromOntology(content: string, options?: { format?: 'rdf' | 'jsonld' | 'yaml' }): Promise<GeneratedServer>;
 }
 ```
+
+When generating from natural language descriptions, the agent makes separate LLM calls to extract:
+1. **Tool specifications** - via `EXTRACT_TOOLS_PROMPT`
+2. **Resource specifications** - via `EXTRACT_RESOURCES_PROMPT`
+3. **Prompt specifications** - via `EXTRACT_PROMPTS_PROMPT`
+4. **Tool implementations** - via `GENERATE_IMPLEMENTATION_PROMPT` (one per tool, run in parallel by default)
 
 ### LLM Providers
 
@@ -79,18 +93,26 @@ abstract class BaseLLMProvider {
 
 interface LLMResponse {
   text: string;
-  tokensIn?: number;
-  tokensOut?: number;
+  tokensIn?: number | null;
+  tokensOut?: number | null;
   latencyMs: number;
-  error?: string;
+  model?: string | null;
+  error?: string | null;
+  fromCache?: boolean;
+  /** Detailed token breakdown from AI SDK (v0.3.0) */
+  tokenDetails?: {
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    reasoningTokens?: number;
+  } | null;
+  /** Estimated cost in USD for this call (v0.3.0) */
+  cost?: number | null;
 }
 ```
 
 **Implementations:**
-- `AnthropicProvider` - Claude models
-- `OpenAIProvider` - GPT models
-- `GoogleProvider` - Gemini models
-- `ClaudeCodeProvider` - Claude Code SDK
+- `UnifiedLLMProvider` - All Vercel AI SDK providers (Anthropic, OpenAI, Google, Mistral, DeepSeek, Groq, xAI, Azure, Cohere) through a single class with lazy dynamic imports
+- `ClaudeCodeProvider` - Claude Code SDK (uses `claude` CLI subprocess)
 
 ### Generators
 
@@ -100,7 +122,12 @@ Generates TypeScript MCP server code using Handlebars templates.
 
 ```typescript
 class ServerGenerator {
-  generateServer(name: string, specs: ToolSpec[], impls: Record<string, string>): string;
+  generateServer(
+    name: string,
+    specs: ToolSpec[],
+    impls: Record<string, string>,
+    options?: { resourceSpecs?: ResourceSpec[]; promptSpecs?: PromptSpec[] }
+  ): string;
   generatePackageJson(name: string, specs: ToolSpec[]): string;
   generateDockerfile(specs: ToolSpec[]): string;
   generateGitHubActions(name: string): string;
@@ -117,6 +144,9 @@ Generates documentation files.
 class DocsGenerator {
   generateReadme(name: string, specs: ToolSpec[]): string;
   generateSkill(name: string, specs: ToolSpec[]): string;
+  generateChangelog(name: string, specs: ToolSpec[], version: string): string;
+  generateToolsSpec(name: string, specs: ToolSpec[]): string;
+  generateApiDocsIndex(name: string, specs: ToolSpec[]): string;
 }
 ```
 
@@ -158,6 +188,61 @@ class DatabaseServerGenerator {
 }
 ```
 
+#### GraphQLServerGenerator
+
+Parses GraphQL SDL schemas and generates MCP servers. Query fields become read-only tools, mutation fields become write tools.
+
+```typescript
+class GraphQLServerGenerator {
+  constructor(schemaString: string, endpoint?: string);
+  generateServerCode(name: string): string;
+  getToolSpecs(): ToolSpec[];
+  getAuthEnvVars(): string[];  // GRAPHQL_ENDPOINT, GRAPHQL_AUTH_TOKEN
+}
+```
+
+**Mapping rules:**
+- Each `Query` field becomes a read-only tool (e.g., `getUser` -> `get_user`)
+- Each `Mutation` field becomes a write tool (e.g., `createUser` -> `create_user`)
+- GraphQL scalar types map to Zod schemas (`String` -> `z.string()`, `Int` -> `z.number()`, etc.)
+- Field arguments become tool input parameters
+- Requires the `graphql` npm package (dynamically imported)
+
+#### OntologyParser
+
+Multi-format ontology parser supporting RDF/OWL (Turtle), JSON-LD, and custom YAML.
+
+```typescript
+class OntologyParser {
+  async parse(content: string, format?: 'rdf' | 'jsonld' | 'yaml'): Promise<OntologyDefinition>;
+  async parseRDF(content: string): Promise<OntologyDefinition>;    // requires 'n3' package
+  parseJsonLD(content: string): OntologyDefinition;
+  async parseYAML(content: string): Promise<OntologyDefinition>;   // requires 'js-yaml' package
+}
+```
+
+Auto-detection order: JSON-LD (starts with `{`/`[` + has `@context`/`@graph`), YAML (has `name:` or `classes:` lines), then RDF/Turtle.
+
+#### OntologyServerGenerator
+
+Generates MCP servers with CRUD tools and relationship tools from ontology definitions.
+
+```typescript
+class OntologyServerGenerator {
+  constructor(definition: OntologyDefinition);
+  generateServerCode(name: string): string;
+  getToolSpecs(): ToolSpec[];
+  getResourceSpecs(): Array<{ uri: string; name: string; description: string; mimeType: string }>;
+}
+```
+
+**Mapping rules:**
+- Each ontology class becomes 5 CRUD tools: `create_<class>`, `get_<class>`, `update_<class>`, `delete_<class>`, `list_<class>`
+- Each object property becomes a relationship tool: `link_<source>_<relation>`
+- Data properties become Zod-validated input parameters on create/update tools
+- Pre-defined individuals are seeded into in-memory stores
+- Each class is exposed as an MCP resource (`ontology://<className>`)
+
 ## Data Flow
 
 ### Generation from Description
@@ -166,31 +251,32 @@ class DatabaseServerGenerator {
 User Description
       │
       ▼
-┌─────────────────┐
-│ Extract Tool    │ ← LLM call with EXTRACT_TOOLS_PROMPT
-│ Specifications  │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Generate        │ ← LLM call with GENERATE_IMPLEMENTATION_PROMPT
-│ Implementations │   (one per tool)
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Generate        │ ← Handlebars templates
-│ Server Code     │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Generate        │ ← Tests, Docs, Dockerfile, CI
-│ Artifacts       │
-└────────┬────────┘
-         │
-         ▼
-   GeneratedServer
+┌──────────────────────┐
+│ Extract Tool Specs   │ ← LLM call with EXTRACT_TOOLS_PROMPT
+├──────────────────────┤
+│ Extract Resources    │ ← LLM call with EXTRACT_RESOURCES_PROMPT
+├──────────────────────┤
+│ Extract Prompts      │ ← LLM call with EXTRACT_PROMPTS_PROMPT
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│ Generate             │ ← LLM calls with GENERATE_IMPLEMENTATION_PROMPT
+│ Implementations      │   (parallel: up to maxConcurrency concurrent calls)
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│ Generate Server Code │ ← Handlebars templates (tools + resources + prompts)
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│ Generate Artifacts   │ ← Tests, Docs, Dockerfile, CI, CHANGELOG, server.json
+└──────────┬───────────┘
+           │
+           ▼
+     GeneratedServer
 ```
 
 ### Generation from OpenAPI
@@ -256,6 +342,74 @@ Database Connection
    GeneratedServer
 ```
 
+### Generation from GraphQL
+
+```
+GraphQL SDL Schema
+      │
+      ▼
+┌───────────────────────┐
+│ Parse SDL             │ ← graphql.parse() extracts type definitions
+│ (Query + Mutation)    │
+└──────────┬────────────┘
+           │
+           ▼
+┌───────────────────────┐
+│ Extract Fields        │ ← Query fields → read tools
+│                       │   Mutation fields → write tools
+└──────────┬────────────┘
+           │
+           ▼
+┌───────────────────────┐
+│ Map Types             │ ← GraphQL scalars → Zod schemas
+│                       │   Arguments → tool input parameters
+└──────────┬────────────┘
+           │
+           ▼
+┌───────────────────────┐
+│ Generate Server Code  │ ← Inline code generation (no LLM needed)
+│ + graphqlRequest()    │   Includes fetch-based GraphQL client
+└──────────┬────────────┘
+           │
+           ▼
+     GeneratedServer
+```
+
+### Generation from Ontology
+
+```
+Ontology Content (RDF/OWL, JSON-LD, or YAML)
+      │
+      ▼
+┌───────────────────────┐
+│ Auto-detect Format    │ ← JSON-LD → YAML → RDF/Turtle
+│ OntologyParser.parse()│
+└──────────┬────────────┘
+           │
+           ▼
+┌───────────────────────┐
+│ Extract Classes       │ ← owl:Class / rdfs:Class
+│ + Properties          │   Data properties + Object properties
+│ + Individuals         │   Pre-defined instances
+└──────────┬────────────┘
+           │
+           ▼
+┌───────────────────────┐
+│ Generate CRUD Tools   │ ← 5 tools per class (create/get/update/delete/list)
+│ + Relationship Tools  │   link_<source>_<relation> per object property
+│ + Resources           │   ontology://<className> per class
+└──────────┬────────────┘
+           │
+           ▼
+┌───────────────────────┐
+│ Generate Server Code  │ ← Inline code generation (no LLM needed)
+│ + In-memory Stores    │   Pre-populated with individuals
+└──────────┬────────────┘
+           │
+           ▼
+     GeneratedServer
+```
+
 ## Module Structure
 
 ```
@@ -264,23 +418,21 @@ src/
 │   ├── agent.ts        # Core agent class
 │   └── index.ts        # Exports
 │
-├── providers/          # LLM Providers
-│   ├── base.ts         # Abstract provider
-│   ├── anthropic.ts    # Claude provider
-│   ├── openai.ts       # GPT provider
-│   ├── google.ts       # Gemini provider
-│   ├── claude-code.ts  # Claude Code provider
-│   ├── factory.ts      # Provider factory
+├── providers/          # LLM Providers (v0.3.0: Vercel AI SDK)
+│   ├── base.ts         # Abstract provider with caching + LLMResponse
+│   ├── llm-provider.ts # UnifiedLLMProvider (all AI SDK providers)
+│   ├── claude-code.ts  # Claude Code OAuth provider
+│   ├── factory.ts      # Provider auto-detection factory
 │   └── index.ts        # Exports
 │
 ├── generators/         # Code Generators
 │   ├── server.ts       # Server code generator
-│   ├── docs.ts         # Documentation generator
+│   ├── docs.ts         # Documentation generator (README, skill, changelog, API docs)
 │   ├── tests.ts        # Test generator
 │   └── index.ts        # Exports
 │
 ├── templates/          # Handlebars Templates
-│   ├── server.ts.hbs   # Server template
+│   ├── server.ts.hbs   # Server template (tools + resources + prompts)
 │   ├── test.spec.ts.hbs
 │   ├── package.json.hbs
 │   ├── Dockerfile.hbs
@@ -289,7 +441,7 @@ src/
 │   └── server.json.hbs
 │
 ├── openapi/            # OpenAPI Parser
-│   ├── generator.ts    # OpenAPI → MCP
+│   ├── generator.ts    # OpenAPI → MCP tools
 │   └── index.ts        # Exports
 │
 ├── database/           # Database Introspection
@@ -297,34 +449,56 @@ src/
 │   ├── introspector.ts # Schema introspection
 │   └── index.ts        # Exports
 │
+├── graphql/            # GraphQL SDL Parser (v0.2.0)
+│   ├── generator.ts    # GraphQL SDL → MCP tools
+│   └── index.ts        # Exports
+│
+├── ontology/           # Ontology Parser (v0.2.0)
+│   ├── types.ts        # OntologyDefinition, OntologyClass, OntologyProperty
+│   ├── parser.ts       # Multi-format parser (RDF/OWL, JSON-LD, YAML)
+│   ├── generator.ts    # Ontology → CRUD tools + resources
+│   └── index.ts        # Exports
+│
+├── cache/              # LLM Response Cache (v0.2.0)
+│   └── index.ts        # LLMCache with TTL, statistics, eviction
+│
 ├── models/             # Data Models
 │   ├── tool-spec.ts    # Tool specification
+│   ├── resource-spec.ts # Resource specification (v0.2.0)
+│   ├── prompt-spec.ts  # Prompt specification (v0.2.0)
 │   ├── generated-server.ts
 │   ├── generation-log.ts
+│   ├── input-type.ts   # Input type enum
+│   ├── validation-result.ts
 │   └── index.ts        # Exports
 │
 ├── validation/         # Code Validation
 │   ├── parser.ts       # Response parsing
 │   ├── schemas.ts      # Zod schemas
+│   ├── registry.ts     # Validation registry
 │   └── index.ts        # Exports
 │
 ├── prompts/            # LLM Prompts
-│   └── prompts.ts      # System/user prompts
+│   └── prompts.ts      # System/user prompts (tools, resources, prompts extraction)
 │
 ├── config/             # Configuration
 │   ├── config.ts       # Factory config
-│   ├── providers.ts    # Provider enum
+│   ├── providers.ts    # Provider enum, model lists, defaults
+│   ├── pricing.ts      # Model pricing table, calculateCost() (v0.3.0)
 │   └── index.ts        # Exports
 │
 ├── cli/                # Command Line Interface
 │   └── index.ts        # CLI entry point
 │
+├── server/             # MCP Server Mode
+│   └── index.ts        # Factory-as-MCP-server (generate_mcp_server, etc.)
+│
 ├── auth/               # OAuth2 Support
 ├── web-search/         # Web Search Integration
-├── production/         # Production Features
+├── production/         # Production Code Generation
 ├── security/           # Security Scanning
 ├── middleware/         # Validation Middleware
-├── observability/      # Telemetry
+├── observability/      # Telemetry/Tracing
 ├── execution-logger/   # Execution Logging
 └── utils/              # Utilities
 ```
@@ -336,16 +510,21 @@ src/
 ```typescript
 interface GeneratedServer {
   name: string;
-  serverCode: string;       // Main TypeScript code
-  toolSpecs: ToolSpec[];    # Tool specifications
-  testCode: string;         # Test file
-  dockerfile: string;       # Container config
-  readme: string;           # Documentation
-  skillFile: string;        # Claude Code skill
-  packageJson: string;      # Dependencies
-  tsconfigJson: string;     # TypeScript config
-  githubActions: string;    # CI/CD workflow
-  serverJson: string;       # MCP Registry manifest
+  serverCode: string;           // Main TypeScript code
+  toolSpecs: ToolSpec[];        // Tool specifications
+  resourceSpecs: ResourceSpec[]; // Resource specifications (v0.2.0)
+  promptSpecs: PromptSpec[];    // Prompt specifications (v0.2.0)
+  testCode: string;             // Test file
+  dockerfile: string;           // Container config
+  readme: string;               // Documentation
+  skillFile: string;            // Claude Code skill
+  packageJson: string;          // Dependencies
+  tsconfigJson: string;         // TypeScript config
+  githubActions: string;        // CI/CD workflow
+  serverJson: string;           // MCP Registry manifest
+  changelog: string;            // CHANGELOG.md
+  toolsSpec: string;            // docs/tools.json - machine-readable API spec
+  apiDocsIndex: string;         // docs/index.md - API documentation entry
   executionLog?: GenerationLog;
 }
 ```
@@ -360,6 +539,35 @@ interface ToolSpec {
   outputSchema?: JsonSchema; # Output schema
   implementationHints?: string;
   dependencies: string[];    # npm packages
+}
+```
+
+### ResourceSpec
+
+```typescript
+interface ResourceSpec {
+  uri: string;          // Resource URI (e.g., "db://users", "ontology://person")
+  name: string;         // Human-readable name
+  description: string;  // Description of the resource
+  mimeType: string;     // MIME type (default: "application/json")
+  template: boolean;    // Whether the URI contains {placeholders}
+}
+```
+
+### PromptSpec
+
+```typescript
+interface PromptSpec {
+  name: string;              // Prompt name in snake_case
+  description: string;       // Description of what the prompt does
+  arguments: PromptArgument[]; // Arguments the prompt accepts
+  template: string;          // Template text (can reference arguments with ${argName})
+}
+
+interface PromptArgument {
+  name: string;        // Argument name
+  description: string; // Description
+  required: boolean;   // Whether the argument is required
 }
 ```
 
@@ -392,6 +600,52 @@ interface ProductionConfig {
   retryBaseDelay?: number;
 }
 ```
+
+### GenerateOptions
+
+```typescript
+interface GenerateOptions {
+  serverName?: string;
+  description?: string;
+  githubUsername?: string;
+  version?: string;
+  webSearch?: boolean;               // Search web for API documentation context
+  authEnvVars?: string[];            // Environment variables for authentication
+  includeHealthCheck?: boolean;
+  productionConfig?: ProductionConfig;
+  parallel?: boolean;                // Enable parallel tool generation (default: true)
+  maxConcurrency?: number;           // Max concurrent LLM calls (default: 5)
+  skipCache?: boolean;               // Bypass LLM response cache
+  stream?: boolean;                  // Enable streaming output
+  onStreamToken?: (token: string) => void; // Streaming callback
+  budget?: number;                   // Max spend in USD (v0.3.0)
+}
+```
+
+## LLM Response Cache
+
+The cache module (`src/cache/`) provides in-memory caching with TTL-based expiration to avoid redundant LLM API calls.
+
+```typescript
+class LLMCache {
+  constructor(config?: Partial<CacheConfig>);
+  get(params: CacheKeyParams): CacheEntry | null;
+  set(params: CacheKeyParams, text: string, metadata?: object): void;
+  has(params: CacheKeyParams): boolean;
+  invalidate(params: CacheKeyParams): boolean;
+  clear(): void;
+  prune(): number;             // Remove expired entries
+  getStats(): CacheStats;     // Hit/miss rate, size, eviction counts
+}
+```
+
+**Configuration:**
+- `ttlMs` - Time-to-live per entry (default: 1 hour)
+- `maxEntries` - Maximum cache size (default: 1000)
+- `includeModelInKey` - Include model name in cache key (default: true)
+- `includeTemperatureInKey` - Include temperature in cache key (default: true)
+
+Cache keys are SHA-256 hashes of `systemPrompt | userPrompt | maxTokens | model | temperature`.
 
 ## Extension Points
 
@@ -429,7 +683,7 @@ if (!result.valid) {
 
 ## Execution Logging
 
-Generation creates detailed execution logs:
+Generation creates detailed execution logs with cost tracking (v0.3.0):
 
 ```typescript
 interface GenerationLog {
@@ -442,6 +696,12 @@ interface GenerationLog {
   toolsGenerated: string[];
   dependenciesUsed: string[];
   webSearchEnabled: boolean;
+  // Cost tracking (v0.3.0)
+  totalTokensIn: number;
+  totalTokensOut: number;
+  totalCost: number;
+  llmCallCount: number;
+  costBreakdown: Array<{ phase: string; cost: number; calls: number }>;
 }
 
 interface GenerationStep {
@@ -452,6 +712,26 @@ interface GenerationStep {
   output?: string;
 }
 ```
+
+### Cost Tracking Architecture (v0.3.0)
+
+```
+LLM Call → AI SDK usage → calculateCost() → LLMResponse.cost
+                                                    │
+                                                    ▼
+                                          ExecutionLogger
+                                          ├── totalCost accumulator
+                                          ├── costByPhase tracker
+                                          └── per-call cost in RawLLMCall
+                                                    │
+                                                    ▼
+                                          GenerationLog
+                                          ├── totalCost
+                                          ├── costBreakdown (per phase)
+                                          └── Markdown/JSON output
+```
+
+Phases tracked: `tool_extraction`, `resource_extraction`, `prompt_extraction`, `implementation`, `test_generation`, `docs_generation`.
 
 ## Security Architecture
 
@@ -480,8 +760,11 @@ const issues: SecurityIssue[] = await scanCode(serverCode);
 ### LLM Optimization
 
 - Minimal prompt tokens
-- Cached tool specs
-- Parallel implementation generation (future)
+- LLM response caching with configurable TTL (avoids redundant API calls)
+- Parallel implementation generation (enabled by default, up to `maxConcurrency` concurrent calls)
+- Streaming output with `onStreamToken` callback for real-time feedback
+- Cost tracking with budget limits to prevent overspending (v0.3.0)
+- Unified provider via Vercel AI SDK — lazy dynamic imports (v0.3.0)
 
 ### Template Optimization
 
@@ -493,6 +776,7 @@ const issues: SecurityIssue[] = await scanCode(serverCode);
 - Tree-shaking enabled
 - External dependencies (LLM SDKs, pg, sqlite3)
 - TypeScript as optional external
+- Optional dependencies loaded dynamically (`graphql`, `n3`, `js-yaml`)
 
 ## Testing Architecture
 
@@ -527,7 +811,8 @@ mcp-publisher publish
 
 ## Future Architecture
 
-- **Parallel Generation**: Generate tool implementations concurrently
-- **Streaming**: Stream generated code as it's produced
-- **Caching**: Cache LLM responses for repeated patterns
-- **Plugins**: Extensible plugin system for generators
+- **Plugins**: Extensible plugin system for custom generators and parsers
+- **Persistent Cache**: File-based or Redis-backed LLM response cache
+- **Incremental Generation**: Re-generate only changed tools when input evolves
+- **Schema Composition**: Combine multiple input sources (e.g., OpenAPI + Ontology) into a single server
+- **Cost History**: Persistent cost tracking across sessions for usage analytics
